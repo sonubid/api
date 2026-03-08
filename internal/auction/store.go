@@ -16,4 +16,10 @@ type Store interface {
 	// the starting price. Returns nil on success, or an error indicating
 	// why the update failed (ErrBidTooLow, ErrAuctionClosed, etc.).
 	TryUpdateBid(ctx context.Context, bid Bid) error
+
+	// LoadState initialises the in-memory state for a single auction.
+	// It is called during startup to seed the store from the Repository
+	// before the server begins accepting bids. If the auction already
+	// exists in the store, its state is replaced.
+	LoadState(ctx context.Context, state State) error
 }
