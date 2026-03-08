@@ -9,4 +9,9 @@ type Repository interface {
 	// Save persists a bid to the underlying storage.
 	// Returns an error if the save operation fails.
 	Save(ctx context.Context, bid Bid) error
+
+	// ListActiveStates returns the current state for every auction that is
+	// not yet finished. It is used during startup to seed the in-memory
+	// Store before the server begins accepting bids.
+	ListActiveStates(ctx context.Context) ([]State, error)
 }

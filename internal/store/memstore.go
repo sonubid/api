@@ -1,0 +1,90 @@
+package store
+
+import (
+	"context"
+	"sync"
+
+	"github.com/sonubid/api/internal/auction"
+)
+
+// MemStore provides in-memory storage for auction states using a concurrent-safe
+// map protected by a read-write mutex. It implements the auction.MemStore interface.
+type MemStore struct {
+	// mu protects the states map from concurrent access.
+	// multiple readers can read simultaneously, but writes are exclusive.
+	mu sync.RWMutex
+	// states maps auction ID to current auction state.
+	// Key: auction ID (string), Value: pointer to State for efficient updates.
+	states map[string]*auction.State
+}
+
+// New creates a new in-memory store with an empty state map.
+func New() *MemStore {
+	return &MemStore{
+		states: make(map[string]*auction.State),
+	}
+}
+
+// GetState retrieves the current state of an auction by its ID.
+// Returns ErrAuctionNotFound if the auction does not exist.
+func (s *MemStore) GetState(_ context.Context, auctionID string) (auction.State, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[auctionID]
+	if !exists {
+		return auction.State{}, auction.ErrAuctionNotFound
+	}
+
+	return *state, nil
+}
+
+// TryUpdateBid attempts to update the auction state with a new bid.
+// It validates that the bid amount is higher than the current bid and
+// the starting price. Returns nil on success.
+func (s *MemStore) TryUpdateBid(_ context.Context, bid auction.Bid) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, exists := s.states[bid.AuctionID]
+	if !exists {
+		return auction.ErrAuctionNotFound
+	}
+
+	if err := s.validateBid(state, bid); err != nil {
+		return err
+	}
+
+	state.CurrentBid = bid.Amount
+	state.BidderID = bid.UserID
+	state.UpdatedAt = bid.PlacedAt
+
+	return nil
+}
+
+// LoadState initialises the in-memory state for a single auction.
+// It is called during startup to seed the store from the Repository
+// before the server begins accepting bids. If the auction already
+// exists in the store, its state is replaced.
+func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
+	if state.AuctionID == "" {
+		return auction.ErrAuctionNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states[state.AuctionID] = &state
+	return nil
+}
+
+func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
+	var minBid uint64
+	if state.CurrentBid == 0 {
+		minBid = state.StartingPrice
+	} else {
+		minBid = state.CurrentBid
+	}
+	if bid.Amount <= minBid {
+		return auction.ErrBidTooLow
+	}
+	return nil
+}
