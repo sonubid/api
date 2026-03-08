@@ -103,15 +103,15 @@ lefthook run pre-commit
 Current layout:
 
 ```
+cmd/api/       # main.go — wires everything together (pending)
 internal/
   auction/     # domain models + interfaces (Feature 1 — complete)
   hub/         # WebSocket hub + client + HTTP handler (Feature 2 — complete)
-  memstore/    # Store implementation — sync.RWMutex (pending)
+  store/    # Store implementation — sync.RWMutex (Feature 3 - complete)
   processor/   # bid validation + broadcast + enqueue (pending)
-  bidqueue/    # Queue implementation — chan BidEvent (pending)
+  queue/    # Queue implementation — chan BidEvent (pending)
   worker/      # background persistence goroutine (pending)
-  postgres/    # Repository implementation — pgx (pending)
-cmd/api/       # main.go — wires everything together (pending)
+  repository/    # Repository implementation — pgx (pending)
 ```
 
 ---

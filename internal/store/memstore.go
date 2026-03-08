@@ -27,11 +27,10 @@ func New() *MemStore {
 
 // GetState retrieves the current state of an auction by its ID.
 // Returns ErrAuctionNotFound if the auction does not exist.
-func (s *MemStore) GetState(ctx context.Context, auctionID string) (auction.State, error) {
+func (s *MemStore) GetState(_ context.Context, auctionID string) (auction.State, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Check if auction exists in our map
 	state, exists := s.states[auctionID]
 	if !exists {
 		return auction.State{}, auction.ErrAuctionNotFound
@@ -43,7 +42,7 @@ func (s *MemStore) GetState(ctx context.Context, auctionID string) (auction.Stat
 // TryUpdateBid attempts to update the auction state with a new bid.
 // It validates that the bid amount is higher than the current bid and
 // the starting price. Returns nil on success.
-func (s *MemStore) TryUpdateBid(ctx context.Context, bid auction.Bid) error {
+func (s *MemStore) TryUpdateBid(_ context.Context, bid auction.Bid) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -52,7 +51,6 @@ func (s *MemStore) TryUpdateBid(ctx context.Context, bid auction.Bid) error {
 		return auction.ErrAuctionNotFound
 	}
 
-	// Validate the bid against current state
 	if err := s.validateBid(state, bid); err != nil {
 		return err
 	}
@@ -68,7 +66,7 @@ func (s *MemStore) TryUpdateBid(ctx context.Context, bid auction.Bid) error {
 // It is called during startup to seed the store from the Repository
 // before the server begins accepting bids. If the auction already
 // exists in the store, its state is replaced.
-func (s *MemStore) LoadState(ctx context.Context, state auction.State) error {
+func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	if state.AuctionID == "" {
 		return auction.ErrAuctionNotFound
 	}
