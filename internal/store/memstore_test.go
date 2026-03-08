@@ -55,7 +55,7 @@ func (s *storeSuite) TestLoadStateSuccess() {
 
 func (s *storeSuite) TestLoadStateEmptyAuctionID() {
 	err := s.store.LoadState(s.ctx, s.newState("", startingPrice))
-	require.ErrorIs(s.T(), err, auction.ErrAuctionNotFound)
+	require.ErrorIs(s.T(), err, auction.ErrInvalidAuctionID)
 }
 
 func (s *storeSuite) TestLoadStateOverwrites() {
@@ -89,8 +89,12 @@ func (s *storeSuite) TestGetStateNotFound() {
 func (s *storeSuite) TestGetStateReturnsCopy() {
 	s.loadAuction(auctionOne, startingPrice)
 
-	_, err := s.store.GetState(s.ctx, auctionOne)
+	state1, err := s.store.GetState(s.ctx, auctionOne)
 	require.NoError(s.T(), err)
+
+	state1.CurrentBid = 9999
+	state1.BidderID = "mutated"
+
 	state2, err := s.store.GetState(s.ctx, auctionOne)
 	require.NoError(s.T(), err)
 
@@ -141,6 +145,22 @@ func (s *storeSuite) TestTryUpdateBidTooLowFirstBid() {
 	bid := s.newBid(auctionOne, userOne, lowerBid)
 	err := s.store.TryUpdateBid(s.ctx, bid)
 	require.ErrorIs(s.T(), err, auction.ErrBidTooLow)
+}
+
+func (s *storeSuite) TestTryUpdateBidZeroStartingPriceRejectsZeroAmount() {
+	s.loadAuction(auctionOne, 0)
+
+	bid := s.newBid(auctionOne, userOne, 0)
+	err := s.store.TryUpdateBid(s.ctx, bid)
+	require.ErrorIs(s.T(), err, auction.ErrBidTooLow)
+}
+
+func (s *storeSuite) TestTryUpdateBidZeroStartingPriceAcceptsPositiveAmount() {
+	s.loadAuction(auctionOne, 0)
+
+	bid := s.newBid(auctionOne, userOne, 1)
+	err := s.store.TryUpdateBid(s.ctx, bid)
+	require.NoError(s.T(), err)
 }
 
 func (s *storeSuite) TestTryUpdateBidTooLowSubsequentBid() {
@@ -196,13 +216,11 @@ func (s *storeSuite) TestConcurrentBidsSameAmount() {
 	bidAmount := startingPrice + 50
 
 	for i := range concurrentOps {
-		wg.Add(1)
-		go func(bidderID int) {
-			defer wg.Done()
-			bid := s.newBidWithID(auctionOne, fmt.Sprintf("user-%d", bidderID), bidAmount)
+		wg.Go(func() {
+			bid := s.newUniqueBid(auctionOne, fmt.Sprintf("user-%d", i), bidAmount)
 			err := s.store.TryUpdateBid(s.ctx, bid)
 			results <- err
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -231,13 +249,12 @@ func (s *storeSuite) TestConcurrentBidsIncreasing() {
 	results := make(chan error, concurrentOps)
 
 	for i := range concurrentOps {
-		wg.Add(1)
-		go func(bidAmount uint64, bidderID int) {
-			defer wg.Done()
-			bid := s.newBidWithID(auctionOne, fmt.Sprintf("user-%d", bidderID), bidAmount)
+		wg.Go(func() {
+			bidAmount := startingPrice + uint64(i) + 1 //nolint:gosec // i is bounded by concurrentOps (100), no overflow risk
+			bid := s.newUniqueBid(auctionOne, fmt.Sprintf("user-%d", i), bidAmount)
 			err := s.store.TryUpdateBid(s.ctx, bid)
 			results <- err
-		}(startingPrice+uint64(i)+1, i)
+		})
 	}
 
 	wg.Wait()
@@ -252,6 +269,11 @@ func (s *storeSuite) TestConcurrentBidsIncreasing() {
 		}
 	}
 
+	// Both bounds are probabilistic: with 100 goroutines submitting strictly
+	// increasing bids concurrently, the scheduler is expected to interleave
+	// them so that more than one succeeds and fewer than all succeed. This
+	// assertion may fail under extreme serialization on heavily loaded CI
+	// machines, but is reliable in practice.
 	require.Greater(s.T(), successCount, 1)
 	require.Less(s.T(), successCount, concurrentOps)
 
@@ -264,12 +286,10 @@ func (s *storeSuite) TestConcurrentLoadAndRead() {
 	var wg sync.WaitGroup
 
 	for i := range 10 {
-		wg.Add(1)
-		go func(auctionID string) {
-			defer wg.Done()
-			err := s.store.LoadState(s.ctx, s.newState(auctionID, startingPrice))
+		wg.Go(func() {
+			err := s.store.LoadState(s.ctx, s.newState(fmt.Sprintf("auction-%d", i), startingPrice))
 			require.NoError(s.T(), err)
-		}(fmt.Sprintf("auction-%d", i))
+		})
 	}
 
 	wg.Wait()
@@ -306,7 +326,7 @@ func (s *storeSuite) newBid(auctionID, userID string, amount uint64) auction.Bid
 	}
 }
 
-func (s *storeSuite) newBidWithID(auctionID, userID string, amount uint64) auction.Bid {
+func (s *storeSuite) newUniqueBid(auctionID, userID string, amount uint64) auction.Bid {
 	s.T().Helper()
 	return auction.Bid{
 		ID:        fmt.Sprintf("bid-%s-%s-%d", userID, auctionID, time.Now().UnixNano()),

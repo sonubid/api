@@ -1,7 +1,7 @@
 # AGENTS.md — SonuBid API
 
-Guía para agentes de código que trabajan en este repositorio.
-Todo el código y la documentación deben estar en **inglés**.
+Guide for code agents working in this repository.
+All code and documentation must be in **English**.
 
 ---
 
@@ -107,11 +107,11 @@ cmd/api/       # main.go — wires everything together (pending)
 internal/
   auction/     # domain models + interfaces (Feature 1 — complete)
   hub/         # WebSocket hub + client + HTTP handler (Feature 2 — complete)
-  store/    # Store implementation — sync.RWMutex (Feature 3 - complete)
+  store/       # Store implementation — sync.RWMutex (Feature 3 - complete)
   processor/   # bid validation + broadcast + enqueue (pending)
-  queue/    # Queue implementation — chan BidEvent (pending)
+  queue/       # Queue implementation — chan BidEvent (pending)
   worker/      # background persistence goroutine (pending)
-  repository/    # Repository implementation — pgx (pending)
+  repository/  # Repository implementation — pgx (pending)
 ```
 
 ---
@@ -154,7 +154,7 @@ internal/
 - Do not use `//nolint:errcheck` — use `_ =` instead.
 
 ### Concurrency
-- Mutex fields first in struct definitions.
+- Mutex fields first in struct definitions, unless struct padding interferes.
 - Release locks before performing I/O (never hold a lock across a network call).
 - Use `context.Context` derived from the request/caller, never `context.Background()`
   in production code paths.
