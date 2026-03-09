@@ -108,8 +108,8 @@ internal/
   auction/     # domain models + interfaces (Feature 1 — complete)
   hub/         # WebSocket hub + client + HTTP handler (Feature 2 — complete)
   store/       # Store implementation — sync.RWMutex (Feature 3 - complete)
-  processor/   # bid validation + broadcast + enqueue (pending)
-  queue/       # Queue implementation — chan BidEvent (pending)
+  processor/   # bid validation + broadcast + enqueue (Feature 4 - complete)
+  queue/       # Queue implementation — chan BidEvent (Feature 5 - complete)
   worker/      # background persistence goroutine (pending)
   repository/  # Repository implementation — pgx (pending)
 ```

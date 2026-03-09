@@ -14,6 +14,9 @@ type MemStore struct {
 	states map[string]*auction.State
 }
 
+// Compile-time assertion that MemStore implements auction.Store.
+var _ auction.Store = (*MemStore)(nil)
+
 // New creates a new in-memory store with an empty state map.
 func New() *MemStore {
 	return &MemStore{
