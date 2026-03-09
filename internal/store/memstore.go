@@ -10,11 +10,7 @@ import (
 // MemStore provides in-memory storage for auction states using a concurrent-safe
 // map protected by a read-write mutex. It implements the auction.MemStore interface.
 type MemStore struct {
-	// mu protects the states map from concurrent access.
-	// multiple readers can read simultaneously, but writes are exclusive.
-	mu sync.RWMutex
-	// states maps auction ID to current auction state.
-	// Key: auction ID (string), Value: pointer to State for efficient updates.
+	mu     sync.RWMutex
 	states map[string]*auction.State
 }
 
@@ -68,7 +64,7 @@ func (s *MemStore) TryUpdateBid(_ context.Context, bid auction.Bid) error {
 // exists in the store, its state is replaced.
 func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	if state.AuctionID == "" {
-		return auction.ErrAuctionNotFound
+		return auction.ErrInvalidAuctionID
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,6 +72,11 @@ func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	return nil
 }
 
+// validateBid checks that bid.Amount is strictly greater than the minimum
+// acceptable amount for the auction state. The minimum is the starting price
+// when no bids have been placed (CurrentBid == 0), or the current bid otherwise.
+// When both CurrentBid and StartingPrice are zero, only bids with Amount > 0
+// succeed; a bid of zero is always rejected.
 func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
 	var minBid uint64
 	if state.CurrentBid == 0 {
