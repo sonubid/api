@@ -5,6 +5,19 @@ All code and documentation must be in **English**.
 
 ---
 
+## Skills
+
+This project uses OpenCode skills for on-demand instructions. Load them when needed:
+
+| Skill | When to load |
+|---|---|
+| `go-code-style` | Writing new Go code or refactoring |
+| `go-testing` | Writing or modifying test files |
+| `websocket` | Working in `internal/hub` or any WebSocket code |
+| `code-review` | Step 5 of the feature workflow (always required) |
+
+---
+
 ## Project overview
 
 Real-time auction/bidding API built in Go. Browsers connect via WebSocket and
@@ -116,104 +129,6 @@ internal/
 
 ---
 
-## Code style
-
-### Formatting & imports
-- Standard `gofmt` / `goimports` formatting. No exceptions.
-- Import groups (separated by blank lines):
-  1. stdlib
-  2. third-party
-  3. internal (`github.com/sonubid/api/...`)
-
-### Documentation
-- Every exported type, function, method, and constant must have a Go doc comment.
-- Package-level doc comment required in every package (on the `package` line file).
-- No inline comments inside function bodies — code must be self-explanatory.
-- Doc comments are written in English, in full sentences, starting with the name
-  of the symbol being documented.
-
-### Naming
-- Follow standard Go naming: `MixedCaps` for exported, `mixedCaps` for unexported.
-- Acronyms: `ID`, `URL`, `HTTP`, `WS` — never `Id`, `Url`, `Http`.
-- Avoid redundant package prefixes: `auction.State` not `auction.AuctionState`.
-- Interface names: single-method interfaces end in `-er` (`Store`, `Queue`,
-  `Repository` are acceptable domain terms).
-- Test suite types: `hubSuite`, `clientSuite`, `handlerSuite`.
-
-### Types
-- Money / bid amounts: `uint64` (cents, no decimals, no negatives).
-- User identity: `string` (no `User` struct in the auction domain).
-- IDs: `string`.
-
-### Error handling
-- Return `error` as the last value; never panic in production paths.
-- Sentinel errors in `errors.go` per package using `errors.New`.
-- Wrap errors with context: `fmt.Errorf("processor: %w", err)`.
-- Never discard errors silently. Use `_ = expr` when intentionally ignoring
-  a return value and add a comment if the reason is non-obvious.
-- Do not use `//nolint:errcheck` — use `_ =` instead.
-
-### Concurrency
-- Mutex fields first in struct definitions, unless struct padding interferes.
-- Release locks before performing I/O (never hold a lock across a network call).
-- Use `context.Context` derived from the request/caller, never `context.Background()`
-  in production code paths.
-
----
-
-## Testing conventions
-
-### General rules
-- Minimum **85% coverage** per package. Aim for 95%+.
-- Always run tests with `-race`.
-- Use the **suite pattern** from `testify/suite` for all test files.
-- Use **subtests** for table-driven cases within a suite method.
-- Black-box tests in `package foo_test`; white-box tests (needing unexported
-  access) in `package foo`. Document why white-box access is needed.
-- Use `export_test.go` (in `package foo`) to expose unexported symbols to
-  `package foo_test` when needed.
-
-### Naming
-- Test function names use **no underscores**: `TestBroadcastMessageReachesAllClients`,
-  not `TestBroadcast_MessageReachesAllClients`.
-- Suite runner: `TestXxxSuite` (e.g. `TestHubSuite`).
-- Test methods on suite: `TestVerbNounDescription` in plain CamelCase.
-
-### Constants
-- Define constants for any string or numeric literal that appears **more than
-  once** across test files in the same package. This avoids SonarQube
-  duplication warnings.
-
-```go
-const (
-    auctionOne  = "auction-1"
-    auctionTwo  = "auction-2"
-    bidPayload  = `{"bid":100}`
-    waitTimeout = 2 * time.Second
-)
-```
-
-### Helpers
-- Shared test helpers go in `helpers_test.go`.
-- Use `require.Eventually` instead of manual polling loops.
-- Goroutines spawned in test helpers must be bound to a context cancelled via
-  `t.Cleanup(cancel)` to avoid goroutine leaks on test failure.
-- Use `t.Helper()` in all helper functions.
-
----
-
-## Workflow for each feature
-
-1. Implement the feature code.
-2. Write tests — minimum 85% coverage, suite pattern, no underscores in names.
-3. Run `golangci-lint run ./...` — **must be 0 issues** before proceeding.
-4. Run `go test -race ./...` — **must be green** before proceeding.
-5. Launch a **code review sub-agent** to review all changed files. Address every
-   finding before marking the feature complete.
-6. Only commit after linter + tests + code review are all clean.
-
----
-
 ## Linters enabled (golangci-lint)
 
 `gosec`, `bodyclose`, `noctx`, `revive`, `gocritic`, `misspell`, `whitespace`,
@@ -227,16 +142,14 @@ The `godoclint` linter enforces Go doc comment format on all exported symbols.
 
 ---
 
-## WebSocket notes
+## Workflow for each feature
 
-- Library: `github.com/coder/websocket` (formerly `nhooyr.io/websocket`).
-- `conn.CloseNow()` is immediate/unilateral — use in cleanup paths and defers.
-- `conn.Close()` performs the full closing handshake — use when the local side
-  initiates a clean close.
-- `websocket.Dial()` returns `(*Conn, *http.Response, error)` — the response
-  body must be closed: `if resp != nil && resp.Body != nil { resp.Body.Close() }`.
-- In production, pass `opts.OriginPatterns` to `websocket.Accept` to restrict
-  cross-origin connections. Never ship `InsecureSkipVerify: true` in production
-  handlers — inject `*websocket.AcceptOptions` as a parameter instead.
-- `Handler` in `internal/hub` derives its context from `r.Context()` so that
-  server shutdown propagates to all active WebSocket sessions.
+1. Load skill `go-code-style` before writing any code.
+2. Implement the feature code.
+3. Load skill `go-testing` before writing tests. Write tests — minimum 85% coverage.
+4. If working in `internal/hub` or any WebSocket code, load skill `websocket`.
+5. Run `golangci-lint run ./...` — **must be 0 issues** before proceeding.
+6. Run `go test -race ./...` — **must be green** before proceeding.
+7. Load skill `code-review` and launch a **code review sub-agent** to review all
+   changed files. Address every finding before proceeding.
+8. Only commit after linter + tests + code review are all clean.
