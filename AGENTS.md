@@ -110,7 +110,7 @@ internal/
   store/       # Store implementation — sync.RWMutex (Feature 3 - complete)
   processor/   # bid validation + broadcast + enqueue (Feature 4 - complete)
   queue/       # Queue implementation — chan BidEvent (Feature 5 - complete)
-  worker/      # background persistence goroutine (Feature 6 - pending)
+  worker/      # background persistence goroutine (Feature 6 - complete)
   repository/  # Repository implementation — pgx (Feature 7 - pending)
 ```
 
