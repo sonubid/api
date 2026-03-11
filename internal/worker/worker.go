@@ -1,5 +1,5 @@
 // Package worker provides a background goroutine that drains the Queue and
-// persists bids via the Repository.
+// persists bids via a Saver.
 package worker
 
 import (
@@ -9,23 +9,23 @@ import (
 	"github.com/sonubid/api/internal/auction"
 )
 
-// Worker drains bid events from a Queue and persists each one via a Repository.
+// Worker drains bid events from a Queue and persists each one via a Saver.
 // It is safe to run multiple Workers concurrently against the same Queue.
 type Worker struct {
-	repo   auction.Repository
+	saver  auction.Saver
 	queue  auction.Queue
 	logger *slog.Logger
 }
 
-// New constructs a Worker wired to the given Repository, Queue, and logger.
+// New constructs a Worker wired to the given Saver, Queue, and logger.
 // If logger is nil, slog.Default() is used.
-func New(repo auction.Repository, queue auction.Queue, logger *slog.Logger) *Worker {
+func New(saver auction.Saver, queue auction.Queue, logger *slog.Logger) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	return &Worker{
-		repo:   repo,
+		saver:  saver,
 		queue:  queue,
 		logger: logger,
 	}
@@ -33,7 +33,7 @@ func New(repo auction.Repository, queue auction.Queue, logger *slog.Logger) *Wor
 
 // Start begins processing bid events from the Queue until either the context
 // is cancelled or the Queue channel is closed. It blocks the calling goroutine
-// and is intended to be launched with go w.Start(ctx, id).
+// and is intended to be launched with go w.Start(ctx, workerID).
 //
 // Shutdown ordering: when ctx is cancelled and the Queue channel still has
 // buffered events, Go's select picks a branch at random. To guarantee that
@@ -52,7 +52,7 @@ func (w *Worker) Start(ctx context.Context, workerID int) {
 				w.logger.Info("queue closed, worker exiting", slog.Int("worker_id", workerID))
 				return
 			}
-			if err := w.repo.Save(ctx, event.Bid); err != nil {
+			if err := w.saver.Save(ctx, event.Bid); err != nil {
 				w.logger.Error("failed to save bid",
 					slog.Any("error", err),
 					slog.Int("worker_id", workerID))

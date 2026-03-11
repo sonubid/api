@@ -37,7 +37,7 @@ func makeBidEvent(auctionID, userID string, amount uint64) auction.BidEvent {
 	}
 }
 
-// mockRepository is a test double for auction.Repository.
+// mockRepository is a test double for auction.Saver.
 type mockRepository struct {
 	mu        sync.Mutex
 	saveFn    func(ctx context.Context, bid auction.Bid) error
@@ -47,17 +47,13 @@ type mockRepository struct {
 func (m *mockRepository) Save(ctx context.Context, bid auction.Bid) error {
 	m.mu.Lock()
 	m.saveCalls = append(m.saveCalls, bid)
-	m.mu.Unlock()
+	m.mu.Unlock() // released before saveFn so slow test functions do not hold the lock
 
 	if m.saveFn != nil {
 		return m.saveFn(ctx, bid)
 	}
 
 	return nil
-}
-
-func (m *mockRepository) ListActiveStates(_ context.Context) ([]auction.State, error) {
-	return nil, nil
 }
 
 func (m *mockRepository) saveCount() int {
