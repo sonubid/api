@@ -46,7 +46,7 @@ Browser ──WebSocket──► Handler (hub)
 - **Processor** — validates incoming bids against the in-memory Store; calls
   Broadcast on success and enqueues the event for persistence.
 - **Worker** — background goroutine that drains the Queue and persists bids via
-  the Repository.
+  a Saver.
 - **Store** — in-memory auction state (`sync.RWMutex`).
 - **Repository** — PostgreSQL persistence (`pgx`).
 - **Queue** — internal Go channel (`chan BidEvent`).
@@ -124,7 +124,7 @@ internal/
   processor/   # bid validation + broadcast + enqueue (Feature 4 - complete)
   queue/       # Queue implementation — chan BidEvent (Feature 5 - complete)
   worker/      # background persistence goroutine (Feature 6 - complete)
-  repository/  # Repository implementation — pgx (Feature 7 - pending)
+  repository/  # MemRepository (auction.Saver) — MVP complete; pgx implementation pending (Feature 7)
 ```
 
 ---
