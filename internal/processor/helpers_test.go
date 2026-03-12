@@ -85,6 +85,8 @@ func (m *mockQueue) Events() <-chan auction.BidEvent {
 	return ch
 }
 
+func (m *mockQueue) Close() {}
+
 func (m *mockQueue) enqueueCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
