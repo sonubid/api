@@ -3,13 +3,11 @@
 // domain model, allowing both to evolve independently.
 package dto
 
-import "time"
-
 // BidRequest is the JSON payload sent by a browser client to place a bid.
 // AuctionID is inferred from the WebSocket URL path and is not part of this payload.
 type BidRequest struct {
 	// UserID identifies the bidder.
-	UserID string `json:"user_id"`
+	UserID string `json:"userId"`
 	// Amount is the bid value in cents.
 	Amount uint64 `json:"amount"`
 }
@@ -18,14 +16,10 @@ type BidRequest struct {
 // when a bid is accepted. It carries the server-assigned ID and timestamp
 // alongside the bidder and amount fields.
 type BidResponse struct {
-	// ID is the server-assigned unique identifier for the bid.
-	ID string `json:"id"`
 	// AuctionID is the identifier of the auction this bid belongs to.
-	AuctionID string `json:"auction_id"`
+	AuctionID string `json:"auctionId"`
 	// UserID identifies the bidder.
-	UserID string `json:"user_id"`
+	UserID string `json:"userId"`
 	// Amount is the bid value in cents.
 	Amount uint64 `json:"amount"`
-	// PlacedAt is the server-side timestamp when the bid was received.
-	PlacedAt time.Time `json:"placed_at"`
 }

@@ -5,10 +5,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +22,7 @@ import (
 	"github.com/sonubid/api/internal/processor"
 	"github.com/sonubid/api/internal/queue"
 	"github.com/sonubid/api/internal/repository"
+	"github.com/sonubid/api/internal/server"
 	"github.com/sonubid/api/internal/store"
 	"github.com/sonubid/api/internal/worker"
 )
@@ -31,8 +30,6 @@ import (
 // Server configuration constants.
 const (
 	listenAddr        = ":8080"
-	shutdownTimeout   = 5 * time.Second
-	readHeaderTimeout = 5 * time.Second
 	seedAuctionID     = "auction-1"
 	seedStartingPrice = uint64(1000)
 	workersCount      = 10
@@ -80,36 +77,15 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	startWorkers(ctx, logger, wg, repo, q)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/auction/{auctionID}", wsHandler(h, proc, logger))
+	mux.HandleFunc("/ws/auction/{auctionID}", wsHandler(h, proc, logger, os.Getenv("ALLOWED_ORIGIN")))
 
-	srv := &http.Server{
-		Addr:              listenAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: readHeaderTimeout,
-		BaseContext: func(_ net.Listener) context.Context {
-			return ctx
-		},
+	srvErr := server.Start(ctx, logger, mux, listenAddr)
+	shutErr := shutdown(q, wg, logger)
+
+	if srvErr != nil {
+		return srvErr
 	}
-
-	errCh := make(chan error, 1)
-
-	go func() {
-		defer close(errCh)
-		logger.Info("server listening", slog.String("addr", listenAddr))
-
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("listen and serve: %w", err)
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		logger.Info("shutdown signal received")
-	}
-
-	return shutdown(ctx, srv, q, wg, logger)
+	return shutErr
 }
 
 // seedStore loads an initial auction state so the server is ready to accept
@@ -138,13 +114,14 @@ func startWorkers(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, 
 // wsHandler returns an http.HandlerFunc that upgrades the request to a
 // WebSocket connection for the auction room identified by the {auctionID}
 // path value and wires incoming messages to the processor.
-func wsHandler(h *hub.Hub, proc bidProcessor, logger *slog.Logger) http.HandlerFunc {
+// allowedOrigin is read once at startup and used for every connection.
+func wsHandler(h *hub.Hub, proc bidProcessor, logger *slog.Logger, allowedOrigin string) http.HandlerFunc {
+	opts := &websocket.AcceptOptions{
+		OriginPatterns: []string{allowedOrigin},
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		auctionID := r.PathValue("auctionID")
-
-		opts := &websocket.AcceptOptions{
-			OriginPatterns: []string{os.Getenv("ALLOWED_ORIGIN")},
-		}
 
 		msgHandler := makeMsgHandler(r.Context(), auctionID, proc, logger)
 
@@ -180,11 +157,9 @@ func makeMsgHandler(ctx context.Context, auctionID string, proc bidProcessor, lo
 		}
 
 		resp := dto.BidResponse{
-			ID:        bid.ID,
 			AuctionID: bid.AuctionID,
 			UserID:    bid.UserID,
 			Amount:    bid.Amount,
-			PlacedAt:  bid.PlacedAt,
 		}
 
 		broadcastMsg, err := json.Marshal(resp)
@@ -206,19 +181,10 @@ func makeMsgHandler(ctx context.Context, auctionID string, proc bidProcessor, lo
 	}
 }
 
-// shutdown gracefully stops the HTTP server, closes the queue so workers drain
-// their remaining events, and waits for all workers to exit before returning.
-// Order: stop accepting → close queue → workers drain → return.
-func shutdown(ctx context.Context, srv *http.Server, q auction.Queue, wg *sync.WaitGroup, logger *slog.Logger) error {
-	shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
-	defer cancel()
-
-	logger.Info("shutting down HTTP server")
-
-	if err := srv.Shutdown(shutCtx); err != nil {
-		return fmt.Errorf("http shutdown: %w", err)
-	}
-
+// shutdown closes the queue so workers drain their remaining events,
+// then waits for all workers to exit before returning.
+// Order: close queue → workers drain → return.
+func shutdown(q auction.Queue, wg *sync.WaitGroup, logger *slog.Logger) error {
 	logger.Info("closing queue")
 	q.Close()
 

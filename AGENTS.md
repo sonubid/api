@@ -126,6 +126,7 @@ internal/
   queue/       # Queue implementation — chan BidEvent (Feature 5 - complete)
   worker/      # background persistence goroutine (Feature 6 - complete)
   repository/  # MemRepository (auction.Saver) — MVP complete; pgx implementation pending (Feature 7)
+  server/      # lifecycle-managed HTTP server (Feature 8 - complete)
 ```
 
 ---
