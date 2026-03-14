@@ -4,20 +4,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
-
-	"github.com/coder/websocket"
 
 	"github.com/sonubid/api/internal/auction"
-	"github.com/sonubid/api/internal/dto"
+	"github.com/sonubid/api/internal/handler"
 	"github.com/sonubid/api/internal/hub"
 	"github.com/sonubid/api/internal/processor"
 	"github.com/sonubid/api/internal/queue"
@@ -35,15 +30,8 @@ const (
 	workersCount      = 10
 )
 
-// bidProcessor is a narrow interface for the bid processing dependency used by
-// wsHandler and makeMsgHandler. It allows both functions to be tested without
-// importing the concrete processor package.
-type bidProcessor interface {
-	ProcessBid(ctx context.Context, bid auction.Bid, msg []byte) error
-}
-
-// Compile-time assertion that *processor.Processor satisfies bidProcessor.
-var _ bidProcessor = (*processor.Processor)(nil)
+// Compile-time assertion that *processor.Processor satisfies handler.BidProcessor.
+var _ handler.BidProcessor = (*processor.Processor)(nil)
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -76,8 +64,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	wg := &sync.WaitGroup{}
 	startWorkers(ctx, logger, wg, repo, q)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/auction/{auctionID}", wsHandler(h, proc, logger, os.Getenv("ALLOWED_ORIGIN")))
+	mux := handler.New(handler.Config{
+		Hub:           h,
+		Processor:     proc,
+		Logger:        logger,
+		AllowedOrigin: os.Getenv("ALLOWED_ORIGIN"),
+	})
 
 	srvErr := server.Start(ctx, logger, mux, listenAddr)
 	shutErr := shutdown(q, wg, logger)
@@ -108,76 +100,6 @@ func startWorkers(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, 
 			w := worker.New(saver, q, logger)
 			w.Start(ctx, workerID)
 		}(i)
-	}
-}
-
-// wsHandler returns an http.HandlerFunc that upgrades the request to a
-// WebSocket connection for the auction room identified by the {auctionID}
-// path value and wires incoming messages to the processor.
-// allowedOrigin is read once at startup and used for every connection.
-func wsHandler(h *hub.Hub, proc bidProcessor, logger *slog.Logger, allowedOrigin string) http.HandlerFunc {
-	opts := &websocket.AcceptOptions{
-		OriginPatterns: []string{allowedOrigin},
-	}
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		auctionID := r.PathValue("auctionID")
-
-		msgHandler := makeMsgHandler(r.Context(), auctionID, proc, logger)
-
-		hub.Handler(h, auctionID, msgHandler, opts)(w, r)
-	}
-}
-
-// makeMsgHandler returns a closure that parses a raw WebSocket message as a
-// BidRequest DTO, maps it to a domain Bid, and delegates to the bidProcessor.
-// Malformed messages are logged and silently dropped. Rejected bids are logged
-// at Warn level. The bid ID is generated from a nanosecond timestamp combined
-// with auctionID and userID; collisions are possible under extreme concurrency
-// and should be replaced with a UUID generator before production use.
-func makeMsgHandler(ctx context.Context, auctionID string, proc bidProcessor, logger *slog.Logger) func([]byte) {
-	return func(raw []byte) {
-		var req dto.BidRequest
-		if err := json.Unmarshal(raw, &req); err != nil {
-			logger.Warn("invalid bid message",
-				slog.String("auction_id", auctionID),
-				slog.Any("error", err))
-
-			return
-		}
-
-		now := time.Now()
-
-		bid := auction.Bid{
-			ID:        fmt.Sprintf("%s-%s-%d", auctionID, req.UserID, now.UnixNano()),
-			AuctionID: auctionID,
-			UserID:    req.UserID,
-			Amount:    req.Amount,
-			PlacedAt:  now,
-		}
-
-		resp := dto.BidResponse{
-			AuctionID: bid.AuctionID,
-			UserID:    bid.UserID,
-			Amount:    bid.Amount,
-		}
-
-		broadcastMsg, err := json.Marshal(resp)
-		if err != nil {
-			logger.Error("failed to marshal bid response",
-				slog.String("auction_id", auctionID),
-				slog.Any("error", err))
-
-			return
-		}
-
-		if err := proc.ProcessBid(ctx, bid, broadcastMsg); err != nil {
-			logger.Warn("bid rejected",
-				slog.String("auction_id", auctionID),
-				slog.String("user_id", req.UserID),
-				slog.Uint64("amount", req.Amount),
-				slog.Any("error", err))
-		}
 	}
 }
 
