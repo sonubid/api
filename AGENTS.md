@@ -116,17 +116,18 @@ lefthook run pre-commit
 Current layout:
 
 ```
-cmd/api/       # main.go — wires everything together (Feature 8 - complete)
+cmd/api/       # main.go — wires everything together
 internal/
-  auction/     # domain models + interfaces (Feature 1 — complete)
-  dto/         # Data Transfer Objects for wire format (Feature 8 - complete)
-  hub/         # WebSocket hub + client + HTTP handler (Feature 2 — complete)
-  store/       # Store implementation — sync.RWMutex (Feature 3 - complete)
-  processor/   # bid validation + broadcast + enqueue (Feature 4 - complete)
-  queue/       # Queue implementation — chan BidEvent (Feature 5 - complete)
-  worker/      # background persistence goroutine (Feature 6 - complete)
-  repository/  # MemRepository (auction.Saver) — MVP complete; pgx implementation pending (Feature 7)
-  server/      # lifecycle-managed HTTP server (Feature 8 - complete)
+  auction/     # domain models + interfaces
+  dto/         # Data Transfer Objects for wire format
+  handler/     # HTTP handler tree — routes all domains onto a ServeMux
+  hub/         # WebSocket hub + client + HTTP handler
+  store/       # Store implementation — sync.RWMutex
+  processor/   # bid validation + broadcast + enqueue
+  queue/       # Queue implementation — chan BidEvent
+  worker/      # background persistence goroutine
+  repository/  # MemRepository (auction.Saver) — MVP complete; pgx implementation pending
+  server/      # lifecycle-managed HTTP server
 ```
 
 ---
