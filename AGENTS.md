@@ -15,6 +15,7 @@ This project uses OpenCode skills for on-demand instructions. Load them when nee
 | `go-testing` | Writing or modifying test files |
 | `websocket` | Working in `internal/hub` or any WebSocket code |
 | `code-review` | Step 5 of the feature workflow (always required) |
+| `database` | Creating migrations, designing schemas, implementing repositories, or working in `internal/db/` |
 
 ---
 
