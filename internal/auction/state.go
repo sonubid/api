@@ -10,6 +10,7 @@ import "time"
 type State struct {
 	AuctionID     string
 	BidderID      string
+	Status        Status
 	StartingPrice uint64
 	CurrentBid    uint64
 	UpdatedAt     time.Time

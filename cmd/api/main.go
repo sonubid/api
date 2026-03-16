@@ -85,6 +85,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 func seedStore(ctx context.Context, s *store.MemStore) error {
 	return s.LoadState(ctx, auction.State{
 		AuctionID:     seedAuctionID,
+		Status:        auction.StatusActive,
 		StartingPrice: seedStartingPrice,
 	})
 }

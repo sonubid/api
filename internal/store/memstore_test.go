@@ -139,6 +139,32 @@ func (s *storeSuite) TestTryUpdateBidAuctionNotFound() {
 	require.ErrorIs(s.T(), err, auction.ErrAuctionNotFound)
 }
 
+func (s *storeSuite) TestTryUpdateBidRejectedWhenPending() {
+	err := s.store.LoadState(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusPending,
+		StartingPrice: startingPrice,
+	})
+	require.NoError(s.T(), err)
+
+	bid := s.newBid(auctionOne, userOne, higherBid)
+	err = s.store.TryUpdateBid(s.ctx, bid)
+	require.ErrorIs(s.T(), err, auction.ErrAuctionClosed)
+}
+
+func (s *storeSuite) TestTryUpdateBidRejectedWhenFinished() {
+	err := s.store.LoadState(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusFinished,
+		StartingPrice: startingPrice,
+	})
+	require.NoError(s.T(), err)
+
+	bid := s.newBid(auctionOne, userOne, higherBid)
+	err = s.store.TryUpdateBid(s.ctx, bid)
+	require.ErrorIs(s.T(), err, auction.ErrAuctionClosed)
+}
+
 func (s *storeSuite) TestTryUpdateBidTooLowFirstBid() {
 	s.loadAuction(auctionOne, startingPrice)
 
@@ -311,6 +337,7 @@ func (s *storeSuite) newState(auctionID string, startingPrice uint64) auction.St
 	s.T().Helper()
 	return auction.State{
 		AuctionID:     auctionID,
+		Status:        auction.StatusActive,
 		StartingPrice: startingPrice,
 	}
 }
