@@ -1,3 +1,5 @@
+// Package store provides the in-memory auction state store used by the
+// SonuBid API to validate and process incoming bids without database access.
 package store
 
 import (
@@ -8,7 +10,7 @@ import (
 )
 
 // MemStore provides in-memory storage for auction states using a concurrent-safe
-// map protected by a read-write mutex. It implements the auction.MemStore interface.
+// map protected by a read-write mutex. It implements the auction.Store interface.
 type MemStore struct {
 	mu     sync.RWMutex
 	states map[string]*auction.State
@@ -39,8 +41,8 @@ func (s *MemStore) GetState(_ context.Context, auctionID string) (auction.State,
 }
 
 // TryUpdateBid attempts to update the auction state with a new bid.
-// It validates that the bid amount is higher than the current bid and
-// the starting price. Returns nil on success.
+// It validates that the auction is active and that the bid amount is higher
+// than the current bid and the starting price. Returns nil on success.
 func (s *MemStore) TryUpdateBid(_ context.Context, bid auction.Bid) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,12 +77,15 @@ func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	return nil
 }
 
-// validateBid checks that bid.Amount is strictly greater than the minimum
-// acceptable amount for the auction state. The minimum is the starting price
+// validateBid checks that the auction is active and that bid.Amount is strictly
+// greater than the minimum acceptable amount. The minimum is the starting price
 // when no bids have been placed (CurrentBid == 0), or the current bid otherwise.
 // When both CurrentBid and StartingPrice are zero, only bids with Amount > 0
 // succeed; a bid of zero is always rejected.
 func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
+	if state.Status != auction.StatusActive {
+		return auction.ErrAuctionClosed
+	}
 	var minBid uint64
 	if state.CurrentBid == 0 {
 		minBid = state.StartingPrice

@@ -3,12 +3,12 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	"github.com/sonubid/api/internal/auction"
 	"github.com/sonubid/api/internal/dto"
@@ -65,10 +65,6 @@ func (h *auctionHandler) wsHandler() http.HandlerFunc {
 // BidRequest DTO, maps it to a domain Bid, and delegates to the BidProcessor.
 // Malformed messages are logged and silently dropped. Rejected bids are logged
 // at Warn level.
-//
-// The bid ID is derived from a nanosecond timestamp combined with auctionID
-// and userID. Collisions are possible under extreme concurrency and should be
-// replaced with a UUID generator before production use.
 func (h *auctionHandler) makeMsgHandler(ctx context.Context, auctionID string) func([]byte) {
 	return func(raw []byte) {
 		var req dto.BidRequest
@@ -76,16 +72,12 @@ func (h *auctionHandler) makeMsgHandler(ctx context.Context, auctionID string) f
 			h.logger.Warn("invalid bid message",
 				slog.String("auction_id", auctionID),
 				slog.Any("error", err))
-
 			return
 		}
 
 		now := time.Now()
-
 		bid := auction.Bid{
-			// TODO: replace nanosecond-based ID with a UUID generator to eliminate
-			// collision risk under high concurrency before promoting to production.
-			ID:        fmt.Sprintf("%s-%s-%d", auctionID, req.UserID, now.UnixNano()),
+			ID:        uuid.NewString(),
 			AuctionID: auctionID,
 			UserID:    req.UserID,
 			Amount:    req.Amount,

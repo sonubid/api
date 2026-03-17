@@ -1,4 +1,3 @@
-// Package repository provides implementations of the auction.Saver interface.
 package repository
 
 import (
