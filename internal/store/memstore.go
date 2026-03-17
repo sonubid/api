@@ -1,3 +1,5 @@
+// Package store provides the in-memory auction state store used by the
+// SonuBid API to validate and process incoming bids without database access.
 package store
 
 import (

@@ -3,7 +3,8 @@
 CREATE TABLE auction (
     id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     title          TEXT        NOT NULL,
-    status         TEXT        NOT NULL DEFAULT 'pending',
+    status         TEXT        NOT NULL DEFAULT 'pending'
+                               CHECK (status IN ('pending', 'active', 'finished')),
     starting_price BIGINT      NOT NULL,
     starts_at      TIMESTAMPTZ NOT NULL,
     ends_at        TIMESTAMPTZ NOT NULL,
@@ -20,3 +21,7 @@ CREATE TABLE bid (
     amount     BIGINT      NOT NULL,
     placed_at  TIMESTAMPTZ NOT NULL
 );
+
+-- Index supporting the lateral subquery in ListActiveStates that finds the
+-- highest bid per auction: WHERE auction_id = a.id ORDER BY amount DESC LIMIT 1.
+CREATE INDEX ON bid (auction_id, amount DESC);

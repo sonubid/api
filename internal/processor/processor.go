@@ -5,6 +5,7 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -53,11 +54,12 @@ func (p *Processor) ProcessBid(ctx context.Context, bid auction.Bid, msg []byte)
 	updateErr := p.store.TryUpdateBid(ctx, bid)
 	p.mu.Unlock()
 
-	go p.enqueueAsync(auction.BidEvent{
-		Bid:        bid,
-		ReceivedAt: receivedAt,
-	})
-
+	if !errors.Is(updateErr, auction.ErrAuctionClosed) {
+		go p.enqueueAsync(auction.BidEvent{
+			Bid:        bid,
+			ReceivedAt: receivedAt,
+		})
+	}
 	if updateErr != nil {
 		return fmt.Errorf("processor: %w", updateErr)
 	}

@@ -4,14 +4,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/sonubid/api/internal/auction"
+	"github.com/sonubid/api/internal/db"
 	"github.com/sonubid/api/internal/handler"
 	"github.com/sonubid/api/internal/hub"
 	"github.com/sonubid/api/internal/processor"
@@ -24,10 +27,8 @@ import (
 
 // Server configuration constants.
 const (
-	listenAddr        = ":8080"
-	seedAuctionID     = "auction-1"
-	seedStartingPrice = uint64(1000)
-	workersCount      = 10
+	listenAddr   = ":8080"
+	workersCount = 10
 )
 
 // Compile-time assertion that *processor.Processor satisfies handler.BidProcessor.
@@ -48,16 +49,35 @@ func main() {
 	}
 }
 
-// run wires all components, seeds initial state, starts background workers,
-// and serves HTTP until ctx is cancelled.
+// run wires all components, seeds the in-memory store from PostgreSQL, starts
+// background workers, and serves HTTP until ctx is cancelled.
 func run(ctx context.Context, logger *slog.Logger) error {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return errors.New("DATABASE_URL environment variable is not set")
+	}
+
+	migrateDSN := strings.Replace(dsn, "postgres://", "pgx5://", 1)
+	migrateDSN = strings.Replace(migrateDSN, "postgresql://", "pgx5://", 1)
+
+	if err := db.RunMigrations(migrateDSN); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer pool.Close()
+
+	repo := repository.NewPostgresRepository(pool)
+
 	h := hub.NewHub()
 	st := store.New()
 	q := queue.New()
-	repo := repository.NewMemRepository()
 	proc := processor.New(st, q, h, logger)
 
-	if err := seedStore(ctx, st); err != nil {
+	if err := seedStoreFromDB(ctx, logger, st, repo); err != nil {
 		return fmt.Errorf("failed to seed store: %w", err)
 	}
 
@@ -77,17 +97,34 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if srvErr != nil {
 		return srvErr
 	}
+
 	return shutErr
 }
 
-// seedStore loads an initial auction state so the server is ready to accept
-// bids on startup without a database round-trip.
-func seedStore(ctx context.Context, s *store.MemStore) error {
-	return s.LoadState(ctx, auction.State{
-		AuctionID:     seedAuctionID,
-		Status:        auction.StatusActive,
-		StartingPrice: seedStartingPrice,
-	})
+// seedStoreFromDB loads every non-finished auction state from the repository
+// into the in-memory store so the server is ready to accept bids on startup.
+// If no active auctions exist the store starts empty without error.
+func seedStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.Store, provider auction.ActiveStateProvider) error {
+	states, err := provider.ListActiveStates(ctx)
+	if err != nil {
+		return fmt.Errorf("list active states: %w", err)
+	}
+
+	for _, state := range states {
+		logger.Debug(
+			"seeding store",
+			slog.String("auction_id", state.AuctionID),
+			slog.String("status", string(state.Status)),
+			slog.Uint64("starting_price", state.StartingPrice),
+			slog.String("bidder_id", state.BidderID),
+			slog.Uint64("current_bid", state.CurrentBid),
+			slog.Time("updated_at", state.UpdatedAt))
+		if err := s.LoadState(ctx, state); err != nil {
+			return fmt.Errorf("load state for auction %s: %w", state.AuctionID, err)
+		}
+	}
+
+	return nil
 }
 
 // startWorkers launches workersCount background workers in separate goroutines.

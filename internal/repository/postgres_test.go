@@ -30,6 +30,7 @@ const (
 	containerStartupTimeout = 60 * time.Second
 
 	testStartingPrice uint64 = 100
+	testBidAmountZero uint64 = 0
 	testBidAmountLow  uint64 = 150
 	testBidAmountMid  uint64 = 200
 	testBidAmountHigh uint64 = 300
@@ -192,7 +193,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsActiveAuctionWithNo
 	s.Equal(auctionID, st.AuctionID)
 	s.Equal(auction.StatusActive, st.Status)
 	s.Equal(testStartingPrice, st.StartingPrice)
-	s.Equal(uint64(0), st.CurrentBid)
+	s.Equal(testBidAmountZero, st.CurrentBid)
 	s.Empty(st.BidderID)
 }
 
@@ -271,6 +272,6 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsStatePerAuction() {
 	}
 
 	s.Equal(testBidAmountSolo, byID[auctionIDs[0]].CurrentBid)
-	s.Equal(uint64(0), byID[auctionIDs[1]].CurrentBid)
-	s.Equal(uint64(0), byID[auctionIDs[2]].CurrentBid)
+	s.Equal(testBidAmountZero, byID[auctionIDs[1]].CurrentBid)
+	s.Equal(testBidAmountZero, byID[auctionIDs[2]].CurrentBid)
 }
