@@ -16,6 +16,7 @@ import (
 
 const (
 	auctionOne    = "auction-1"
+	auctionTwo    = "auction-2"
 	ghostAuction  = "ghost-auction"
 	startingPrice = uint64(100)
 	higherBid     = uint64(150)
@@ -98,6 +99,47 @@ func (s *storeSuite) TestLoadStateIfAbsentDoesNotOverwrite() {
 func (s *storeSuite) TestLoadStateIfAbsentEmptyAuctionID() {
 	err := s.store.LoadStateIfAbsent(s.ctx, s.newState("", startingPrice))
 	require.ErrorIs(s.T(), err, auction.ErrInvalidAuctionID)
+}
+
+func (s *storeSuite) TestDeleteStateSuccess() {
+	s.loadAuction(auctionOne, startingPrice)
+
+	err := s.store.DeleteState(s.ctx, auctionOne)
+	require.NoError(s.T(), err)
+
+	_, err = s.store.GetState(s.ctx, auctionOne)
+	require.ErrorIs(s.T(), err, auction.ErrAuctionNotFound)
+}
+
+func (s *storeSuite) TestDeleteStateMissingAuctionIsNoOp() {
+	err := s.store.DeleteState(s.ctx, ghostAuction)
+	require.NoError(s.T(), err)
+}
+
+func (s *storeSuite) TestDeleteStateEmptyAuctionID() {
+	err := s.store.DeleteState(s.ctx, "")
+	require.ErrorIs(s.T(), err, auction.ErrInvalidAuctionID)
+}
+
+func (s *storeSuite) TestConcurrentDeleteAndRead() {
+	s.loadAuction(auctionOne, startingPrice)
+	s.loadAuction(auctionTwo, startingPrice)
+
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		err := s.store.DeleteState(s.ctx, auctionOne)
+		require.NoError(s.T(), err)
+	})
+
+	wg.Go(func() {
+		_, _ = s.store.GetState(s.ctx, auctionTwo)
+	})
+
+	wg.Wait()
+
+	_, err := s.store.GetState(s.ctx, auctionOne)
+	require.ErrorIs(s.T(), err, auction.ErrAuctionNotFound)
 }
 
 func (s *storeSuite) TestGetStateSuccess() {

@@ -20,3 +20,27 @@ func (s *postgresRepositorySuite) insertAuction(id string, status auction.Status
 	)
 	s.Require().NoError(err)
 }
+
+// insertAuctionWithWindow inserts an auction row with explicit starts_at and
+// ends_at values.
+func (s *postgresRepositorySuite) insertAuctionWithWindow(id string, status auction.Status, startsAt, endsAt time.Time) {
+	s.T().Helper()
+
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO auction (id, title, status, starting_price, starts_at, ends_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, "Test Auction", string(status), int64(testStartingPrice), startsAt, endsAt,
+	)
+	s.Require().NoError(err)
+}
+
+// fetchAuctionStatus returns the persisted status for a single auction.
+func (s *postgresRepositorySuite) fetchAuctionStatus(id string) auction.Status {
+	s.T().Helper()
+
+	var status string
+	err := s.pool.QueryRow(context.Background(), `SELECT status FROM auction WHERE id = $1`, id).Scan(&status)
+	s.Require().NoError(err)
+
+	return auction.Status(status)
+}

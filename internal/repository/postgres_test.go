@@ -301,3 +301,41 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsStatePerAuction() {
 	s.Equal(testBidAmountZero, byID[auctionIDs[1]].CurrentBid)
 	s.Equal(testBidAmountZero, byID[auctionIDs[2]].CurrentBid)
 }
+
+// TestFinishExpiredAuctionsMarksOnlyExpired verifies that only auctions with
+// ends_at <= now are transitioned to finished.
+func (s *postgresRepositorySuite) TestFinishExpiredAuctionsMarksOnlyExpired() {
+	now := time.Now().UTC().Truncate(time.Second)
+	expiredID := uuid.NewString()
+	activeFutureID := uuid.NewString()
+	alreadyFinishedID := uuid.NewString()
+
+	s.insertAuctionWithWindow(expiredID, auction.StatusActive, now.Add(-2*time.Hour), now.Add(-time.Minute))
+	s.insertAuctionWithWindow(activeFutureID, auction.StatusActive, now.Add(-time.Minute), now.Add(time.Hour))
+	s.insertAuctionWithWindow(alreadyFinishedID, auction.StatusFinished, now.Add(-2*time.Hour), now.Add(-time.Minute))
+
+	finishedIDs, err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	s.Require().NoError(err)
+	s.Require().Len(finishedIDs, 1)
+	s.Equal(expiredID, finishedIDs[0])
+
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
+	s.Equal(auction.StatusActive, s.fetchAuctionStatus(activeFutureID))
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(alreadyFinishedID))
+}
+
+// TestFinishExpiredAuctionsIsIdempotent verifies a second call after cleanup
+// returns no updated IDs.
+func (s *postgresRepositorySuite) TestFinishExpiredAuctionsIsIdempotent() {
+	now := time.Now().UTC().Truncate(time.Second)
+	expiredID := uuid.NewString()
+	s.insertAuctionWithWindow(expiredID, auction.StatusActive, now.Add(-time.Hour), now.Add(-time.Minute))
+
+	firstIDs, err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	s.Require().NoError(err)
+	s.Require().Len(firstIDs, 1)
+
+	secondIDs, err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	s.Require().NoError(err)
+	s.Empty(secondIDs)
+}

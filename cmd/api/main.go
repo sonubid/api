@@ -28,10 +28,13 @@ import (
 
 // Server configuration constants.
 const (
-	listenAddr               = ":8080"
-	workersCount             = 10
-	storeSyncIntervalDefault = 5 * time.Second
-	storeSyncIntervalEnvVar  = "STORE_SYNC_INTERVAL"
+	listenAddr                = ":8080"
+	workersCount              = 10
+	storeSyncIntervalDefault  = 5 * time.Second
+	storeSyncIntervalEnvVar   = "STORE_SYNC_INTERVAL"
+	auctionCleanupIntervalEnv = "AUCTION_CLEANUP_INTERVAL"
+	storeSyncOperation        = "STORE_SYNC"
+	auctionCleanupOperation   = "AUCTION_CLEANUP"
 )
 
 // Compile-time assertion that *processor.Processor satisfies handler.BidProcessor.
@@ -77,14 +80,18 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load %s: %w", storeSyncIntervalEnvVar, err)
 	}
+	auctionCleanupInterval, err := loadAuctionCleanupIntervalFromEnv(logger)
+	if err != nil {
+		return fmt.Errorf("load %s: %w", auctionCleanupIntervalEnv, err)
+	}
 
 	h := hub.NewHub()
 	st := store.New()
 	q := queue.New()
 	proc := processor.New(st, q, h, logger)
 
-	syncCtx, stopStoreSync := context.WithCancel(ctx)
-	defer stopStoreSync()
+	syncCtx, stopSync := context.WithCancel(ctx)
+	defer stopSync()
 
 	if err := seedStoreFromDB(ctx, logger, st, repo); err != nil {
 		return fmt.Errorf("failed to seed store: %w", err)
@@ -93,6 +100,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	wg := &sync.WaitGroup{}
 	startWorkers(ctx, logger, wg, repo, q)
 	startStoreSync(syncCtx, logger, wg, storeSyncInterval, st, repo)
+	startAuctionCleanup(syncCtx, logger, wg, auctionCleanupInterval, st, repo)
 
 	mux := handler.New(handler.Config{
 		Hub:           h,
@@ -102,7 +110,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	})
 
 	srvErr := server.Start(ctx, logger, mux, listenAddr)
-	stopStoreSync()
+	stopSync()
 	shutErr := shutdown(q, wg, logger)
 
 	if srvErr != nil {
@@ -112,13 +120,54 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return shutErr
 }
 
+// syncStoreFromDB loads non-finished auctions into the in-memory store only
+// when they are not already present.
+func syncStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.StateSyncLoader, provider auction.ActiveStateProvider) error {
+	states, err := provider.ListActiveStates(ctx)
+	if err != nil {
+		return fmt.Errorf("list active states: %w", err)
+	}
+
+	for _, state := range states {
+		if err := s.LoadStateIfAbsent(ctx, state); err != nil {
+			return fmt.Errorf("load state if absent for auction %s: %w", state.AuctionID, err)
+		}
+		logger.Debug(
+			"store sync tick",
+			slog.String("auction_id", state.AuctionID),
+			slog.String("status", string(state.Status)),
+			slog.Time("starts_at", state.StartsAt),
+			slog.Time("ends_at", state.EndsAt),
+		)
+	}
+
+	return nil
+}
+
 // loadStoreSyncIntervalFromEnv returns the background store sync interval.
 // When STORE_SYNC_INTERVAL is empty, a safe default interval is used.
 func loadStoreSyncIntervalFromEnv(logger *slog.Logger) (time.Duration, error) {
 	raw := os.Getenv(storeSyncIntervalEnvVar)
+	return loadPositiveDurationFromEnv(raw, storeSyncIntervalDefault, logger, storeSyncOperation)
+}
+
+// loadAuctionCleanupIntervalFromEnv returns the background auction cleanup interval.
+// When AUCTION_CLEANUP_INTERVAL is empty, the store sync interval default is used.
+func loadAuctionCleanupIntervalFromEnv(logger *slog.Logger) (time.Duration, error) {
+	raw := os.Getenv(auctionCleanupIntervalEnv)
+	return loadPositiveDurationFromEnv(raw, storeSyncIntervalDefault, logger, auctionCleanupOperation)
+}
+
+// loadPositiveDurationFromEnv parses raw as a strictly positive duration, or
+// returns defaultValue when raw is empty.
+func loadPositiveDurationFromEnv(raw string, defaultValue time.Duration, logger *slog.Logger, operation string) (time.Duration, error) {
 	if raw == "" {
-		logger.Info("using default store sync interval", slog.Duration("interval", storeSyncIntervalDefault))
-		return storeSyncIntervalDefault, nil
+		logger.Info(
+			"using default background interval",
+			slog.String("operation", operation),
+			slog.Duration("interval", defaultValue),
+		)
+		return defaultValue, nil
 	}
 
 	interval, err := time.ParseDuration(raw)
@@ -188,25 +237,59 @@ func startStoreSync(
 	})
 }
 
-// syncStoreFromDB loads non-finished auctions into the in-memory store only
-// when they are not already present.
-func syncStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.StateSyncLoader, provider auction.ActiveStateProvider) error {
-	states, err := provider.ListActiveStates(ctx)
+// startAuctionCleanup launches a background ticker that marks expired auctions
+// as finished in the database, then evicts them from the in-memory store.
+func startAuctionCleanup(
+	ctx context.Context,
+	logger *slog.Logger,
+	wg *sync.WaitGroup,
+	interval time.Duration,
+	evicter auction.StateEvicter,
+	finalizer auction.Finalizer,
+) {
+	wg.Go(func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		logger.Info("auction cleanup worker started", slog.Duration("interval", interval))
+
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("auction cleanup worker stopping")
+				return
+			case <-ticker.C:
+				if err := cleanupFinishedAuctions(ctx, logger, evicter, finalizer, time.Now().UTC()); err != nil {
+					logger.Error("auction cleanup failed", slog.Any("error", err))
+				}
+			}
+		}
+	})
+}
+
+// cleanupFinishedAuctions marks expired auctions as finished in persistent
+// storage, then evicts those auction IDs from the in-memory store.
+func cleanupFinishedAuctions(
+	ctx context.Context,
+	logger *slog.Logger,
+	evicter auction.StateEvicter,
+	finalizer auction.Finalizer,
+	now time.Time,
+) error {
+	finishedIDs, err := finalizer.FinishExpiredAuctions(ctx, now)
 	if err != nil {
-		return fmt.Errorf("list active states: %w", err)
+		return fmt.Errorf("finish expired auctions: %w", err)
 	}
 
-	for _, state := range states {
-		if err := s.LoadStateIfAbsent(ctx, state); err != nil {
-			return fmt.Errorf("load state if absent for auction %s: %w", state.AuctionID, err)
+	for _, auctionID := range finishedIDs {
+		if err := evicter.DeleteState(ctx, auctionID); err != nil {
+			return fmt.Errorf("evict auction %s: %w", auctionID, err)
 		}
-		logger.Debug(
-			"store sync tick",
-			slog.String("auction_id", state.AuctionID),
-			slog.String("status", string(state.Status)),
-			slog.Time("starts_at", state.StartsAt),
-			slog.Time("ends_at", state.EndsAt),
-		)
+		logger.Debug("evicted finished auction from store", slog.String("auction_id", auctionID))
+	}
+
+	if len(finishedIDs) > 0 {
+		logger.Info("auction cleanup completed", slog.Int("finished_count", len(finishedIDs)))
 	}
 
 	return nil

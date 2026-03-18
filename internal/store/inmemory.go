@@ -19,6 +19,8 @@ type MemStore struct {
 
 // Compile-time assertion that MemStore implements auction.Store.
 var _ auction.Store = (*MemStore)(nil)
+var _ auction.StateSyncLoader = (*MemStore)(nil)
+var _ auction.StateEvicter = (*MemStore)(nil)
 
 // New creates a new in-memory store with an empty state map.
 func New() *MemStore {
@@ -93,6 +95,21 @@ func (s *MemStore) LoadStateIfAbsent(_ context.Context, state auction.State) err
 	}
 
 	s.states[state.AuctionID] = &state
+
+	return nil
+}
+
+// DeleteState removes the in-memory state for a single auction.
+// If the auction is not present, it is treated as a no-op.
+func (s *MemStore) DeleteState(_ context.Context, auctionID string) error {
+	if auctionID == "" {
+		return auction.ErrInvalidAuctionID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.states, auctionID)
 
 	return nil
 }

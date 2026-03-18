@@ -45,6 +45,15 @@ const (
 			LIMIT 1
 		) lb ON true
 		WHERE a.status != 'finished'`
+
+	// sqlFinishExpiredAuctions transitions non-finished auctions to finished
+	// when their scheduled end time has passed.
+	sqlFinishExpiredAuctions = `
+		UPDATE auction
+		SET status = 'finished'
+		WHERE status != 'finished'
+		  AND ends_at <= $1
+		RETURNING id`
 )
 
 // PostgresRepository is a PostgreSQL-backed implementation of auction.Repository.
@@ -132,4 +141,30 @@ func (r *PostgresRepository) ListActiveStates(ctx context.Context) ([]auction.St
 	}
 
 	return states, nil
+}
+
+// FinishExpiredAuctions marks every non-finished auction with ends_at <= now as
+// finished and returns the IDs that were updated in this call.
+func (r *PostgresRepository) FinishExpiredAuctions(ctx context.Context, now time.Time) ([]string, error) {
+	rows, err := r.pool.Query(ctx, sqlFinishExpiredAuctions, now)
+	if err != nil {
+		return nil, fmt.Errorf("repository: finish expired auctions: %w", err)
+	}
+	defer rows.Close()
+
+	finishedIDs := make([]string, 0)
+
+	for rows.Next() {
+		var auctionID string
+		if err := rows.Scan(&auctionID); err != nil {
+			return nil, fmt.Errorf("repository: scan finished auction id: %w", err)
+		}
+		finishedIDs = append(finishedIDs, auctionID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: iterate finished auction ids: %w", err)
+	}
+
+	return finishedIDs, nil
 }

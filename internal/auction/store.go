@@ -30,3 +30,10 @@ type StateSyncLoader interface {
 	// LoadStateIfAbsent initialises state only when the auction is missing.
 	LoadStateIfAbsent(ctx context.Context, state State) error
 }
+
+// StateEvicter defines the contract for removing auction state from memory.
+type StateEvicter interface {
+	// DeleteState removes a single auction state by ID. If the auction does not
+	// exist, implementations may treat the operation as a no-op.
+	DeleteState(ctx context.Context, auctionID string) error
+}
