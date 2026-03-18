@@ -78,6 +78,25 @@ func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	return nil
 }
 
+// LoadStateIfAbsent initialises the in-memory state for a single auction only
+// when it does not already exist in the store.
+func (s *MemStore) LoadStateIfAbsent(_ context.Context, state auction.State) error {
+	if state.AuctionID == "" {
+		return auction.ErrInvalidAuctionID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.states[state.AuctionID]; exists {
+		return nil
+	}
+
+	s.states[state.AuctionID] = &state
+
+	return nil
+}
+
 // validateBid checks that the auction is open at bid.PlacedAt and that
 // bid.Amount is strictly greater than the minimum acceptable amount. The
 // minimum is the starting price when no bids have been placed

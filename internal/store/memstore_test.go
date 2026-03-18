@@ -73,6 +73,33 @@ func (s *storeSuite) TestLoadStateOverwrites() {
 	require.Equal(s.T(), newStartingPrice, state.StartingPrice)
 }
 
+func (s *storeSuite) TestLoadStateIfAbsentSuccess() {
+	err := s.store.LoadStateIfAbsent(s.ctx, s.newState(auctionOne, startingPrice))
+	require.NoError(s.T(), err)
+
+	state, err := s.store.GetState(s.ctx, auctionOne)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), startingPrice, state.StartingPrice)
+}
+
+func (s *storeSuite) TestLoadStateIfAbsentDoesNotOverwrite() {
+	err := s.store.LoadState(s.ctx, s.newState(auctionOne, startingPrice))
+	require.NoError(s.T(), err)
+
+	newStartingPrice := uint64(300)
+	err = s.store.LoadStateIfAbsent(s.ctx, s.newState(auctionOne, newStartingPrice))
+	require.NoError(s.T(), err)
+
+	state, err := s.store.GetState(s.ctx, auctionOne)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), startingPrice, state.StartingPrice)
+}
+
+func (s *storeSuite) TestLoadStateIfAbsentEmptyAuctionID() {
+	err := s.store.LoadStateIfAbsent(s.ctx, s.newState("", startingPrice))
+	require.ErrorIs(s.T(), err, auction.ErrInvalidAuctionID)
+}
+
 func (s *storeSuite) TestGetStateSuccess() {
 	s.loadAuction(auctionOne, startingPrice)
 

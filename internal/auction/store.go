@@ -23,3 +23,10 @@ type Store interface {
 	// exists in the store, its state is replaced.
 	LoadState(ctx context.Context, state State) error
 }
+
+// StateSyncLoader defines the contract used by the background store sync loop.
+// Implementations insert state only when the auction is not already present.
+type StateSyncLoader interface {
+	// LoadStateIfAbsent initialises state only when the auction is missing.
+	LoadStateIfAbsent(ctx context.Context, state State) error
+}
