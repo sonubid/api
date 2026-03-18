@@ -23,6 +23,8 @@ const (
 	userOne       = "user-1"
 	userTwo       = "user-2"
 	concurrentOps = 100
+	futureOffset  = time.Hour
+	pastOffset    = -time.Hour
 )
 
 type storeSuite struct {
@@ -140,10 +142,13 @@ func (s *storeSuite) TestTryUpdateBidAuctionNotFound() {
 }
 
 func (s *storeSuite) TestTryUpdateBidRejectedWhenPending() {
+	now := time.Now()
 	err := s.store.LoadState(s.ctx, auction.State{
 		AuctionID:     auctionOne,
 		Status:        auction.StatusPending,
 		StartingPrice: startingPrice,
+		StartsAt:      now.Add(futureOffset),
+		EndsAt:        now.Add(2 * futureOffset),
 	})
 	require.NoError(s.T(), err)
 
@@ -153,10 +158,13 @@ func (s *storeSuite) TestTryUpdateBidRejectedWhenPending() {
 }
 
 func (s *storeSuite) TestTryUpdateBidRejectedWhenFinished() {
+	now := time.Now()
 	err := s.store.LoadState(s.ctx, auction.State{
 		AuctionID:     auctionOne,
 		Status:        auction.StatusFinished,
 		StartingPrice: startingPrice,
+		StartsAt:      now.Add(pastOffset),
+		EndsAt:        now.Add(futureOffset),
 	})
 	require.NoError(s.T(), err)
 
@@ -211,6 +219,60 @@ func (s *storeSuite) TestTryUpdateBidEqualBid() {
 	equalBid := s.newBid(auctionOne, userTwo, higherBid)
 	err = s.store.TryUpdateBid(s.ctx, equalBid)
 	require.ErrorIs(s.T(), err, auction.ErrBidTooLow)
+}
+
+func (s *storeSuite) TestTryUpdateBidPendingTransitionsToActiveByTime() {
+	now := time.Now()
+	err := s.store.LoadState(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusPending,
+		StartingPrice: startingPrice,
+		StartsAt:      now.Add(time.Second),
+		EndsAt:        now.Add(futureOffset),
+	})
+	require.NoError(s.T(), err)
+
+	bidBeforeStart := auction.Bid{
+		ID:        "bid-before-start",
+		AuctionID: auctionOne,
+		UserID:    userOne,
+		Amount:    higherBid,
+		PlacedAt:  now,
+	}
+	err = s.store.TryUpdateBid(s.ctx, bidBeforeStart)
+	require.ErrorIs(s.T(), err, auction.ErrAuctionClosed)
+
+	bidAfterStart := auction.Bid{
+		ID:        "bid-after-start",
+		AuctionID: auctionOne,
+		UserID:    userOne,
+		Amount:    higherBid,
+		PlacedAt:  now.Add(2 * time.Second),
+	}
+	err = s.store.TryUpdateBid(s.ctx, bidAfterStart)
+	require.NoError(s.T(), err)
+}
+
+func (s *storeSuite) TestTryUpdateBidRejectedWhenAuctionWindowEnded() {
+	now := time.Now()
+	err := s.store.LoadState(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusActive,
+		StartingPrice: startingPrice,
+		StartsAt:      now.Add(pastOffset),
+		EndsAt:        now.Add(-time.Second),
+	})
+	require.NoError(s.T(), err)
+
+	bid := auction.Bid{
+		ID:        "bid-after-end",
+		AuctionID: auctionOne,
+		UserID:    userOne,
+		Amount:    higherBid,
+		PlacedAt:  now,
+	}
+	err = s.store.TryUpdateBid(s.ctx, bid)
+	require.ErrorIs(s.T(), err, auction.ErrAuctionClosed)
 }
 
 func (s *storeSuite) TestConcurrentReads() {

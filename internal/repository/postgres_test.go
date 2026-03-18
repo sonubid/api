@@ -26,6 +26,7 @@ const (
 	testDBUser     = "sonubid"
 	testDBPassword = "sonubid"
 	sslModeDisable = "sslmode=disable"
+	userID         = "user-1"
 
 	containerStartupTimeout = 60 * time.Second
 
@@ -109,7 +110,7 @@ func (s *postgresRepositorySuite) TestSavePersistsBid() {
 	bid := auction.Bid{
 		ID:        uuid.NewString(),
 		AuctionID: auctionID,
-		UserID:    "user-1",
+		UserID:    userID,
 		Amount:    testBidAmountMid,
 		PlacedAt:  time.Now().UTC().Truncate(time.Microsecond),
 	}
@@ -132,7 +133,7 @@ func (s *postgresRepositorySuite) TestSaveReturnsErrorOnDuplicateID() {
 	bid := auction.Bid{
 		ID:        uuid.NewString(),
 		AuctionID: auctionID,
-		UserID:    "user-1",
+		UserID:    userID,
 		Amount:    testBidAmountMid,
 		PlacedAt:  time.Now().UTC(),
 	}
@@ -209,6 +210,31 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsPendingAuction() {
 	s.Equal(auction.StatusPending, states[0].Status)
 }
 
+// TestListActiveStatesReturnsAuctionSchedule verifies that starts_at and ends_at
+// are mapped into auction.State for non-finished auctions.
+func (s *postgresRepositorySuite) TestListActiveStatesReturnsAuctionSchedule() {
+	auctionID := uuid.NewString()
+	startsAt, err := time.Parse(time.RFC3339Nano, "2026-03-18T10:00:00Z")
+	s.Require().NoError(err)
+	endsAt, err := time.Parse(time.RFC3339Nano, "2026-03-18T11:00:00Z")
+	s.Require().NoError(err)
+
+	_, err = s.pool.Exec(context.Background(),
+		`INSERT INTO auction (id, title, status, starting_price, starts_at, ends_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		auctionID, "Scheduled Auction", string(auction.StatusPending), int64(testStartingPrice), startsAt, endsAt,
+	)
+	s.Require().NoError(err)
+
+	states, err := s.repo.ListActiveStates(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(states, 1)
+
+	st := states[0]
+	s.True(st.StartsAt.Equal(startsAt))
+	s.True(st.EndsAt.Equal(endsAt))
+}
+
 // TestListActiveStatesExcludesFinishedAuction verifies that finished auctions
 // are not included in the results.
 func (s *postgresRepositorySuite) TestListActiveStatesExcludesFinishedAuction() {
@@ -227,7 +253,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsHighestBid() {
 	s.insertAuction(auctionID, auction.StatusActive)
 
 	bids := []auction.Bid{
-		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-1", Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: userID, Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-2", Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-3", Amount: testBidAmountMid, PlacedAt: time.Now().UTC()},
 	}
@@ -257,7 +283,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsStatePerAuction() {
 	s.Require().NoError(s.repo.Save(context.Background(), auction.Bid{
 		ID:        uuid.NewString(),
 		AuctionID: auctionIDs[0],
-		UserID:    "user-1",
+		UserID:    userID,
 		Amount:    testBidAmountSolo,
 		PlacedAt:  time.Now().UTC(),
 	}))

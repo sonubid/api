@@ -186,7 +186,9 @@ func (s *clientSuite) TestReadPumpExitsWhenConnectionClosed() {
 
 	done := make(chan struct{})
 	go func() {
-		c.ReadPump(ctx, func(_ []byte) {})
+		c.ReadPump(ctx, func(_ []byte) {
+			// No-op handler.
+		})
 		close(done)
 	}()
 

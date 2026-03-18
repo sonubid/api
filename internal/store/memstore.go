@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/sonubid/api/internal/auction"
 )
@@ -77,13 +78,14 @@ func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	return nil
 }
 
-// validateBid checks that the auction is active and that bid.Amount is strictly
-// greater than the minimum acceptable amount. The minimum is the starting price
-// when no bids have been placed (CurrentBid == 0), or the current bid otherwise.
-// When both CurrentBid and StartingPrice are zero, only bids with Amount > 0
-// succeed; a bid of zero is always rejected.
+// validateBid checks that the auction is open at bid.PlacedAt and that
+// bid.Amount is strictly greater than the minimum acceptable amount. The
+// minimum is the starting price when no bids have been placed
+// (CurrentBid == 0), or the current bid otherwise. When both CurrentBid and
+// StartingPrice are zero, only bids with Amount > 0 succeed; a bid of zero is
+// always rejected.
 func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
-	if state.Status != auction.StatusActive {
+	if !isAuctionOpenAt(state, bid.PlacedAt) {
 		return auction.ErrAuctionClosed
 	}
 	var minBid uint64
@@ -96,4 +98,18 @@ func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
 		return auction.ErrBidTooLow
 	}
 	return nil
+}
+
+// isAuctionOpenAt reports whether an auction can accept bids at t.
+func isAuctionOpenAt(state *auction.State, t time.Time) bool {
+	if state.Status == auction.StatusFinished {
+		return false
+	}
+	if !state.StartsAt.IsZero() && t.Before(state.StartsAt) {
+		return false
+	}
+	if !state.EndsAt.IsZero() && !t.Before(state.EndsAt) {
+		return false
+	}
+	return true
 }

@@ -43,7 +43,9 @@ func newTestPair(
 ) (*httptest.Server, *websocket.Conn) {
 	t.Helper()
 
-	srv := httptest.NewServer(hub.Handler(h, auctionID, func(_ []byte) {}, testAcceptOpts()))
+	srv := httptest.NewServer(hub.Handler(h, auctionID, func(_ []byte) {
+		// No-op handler since tests that use newTestPair don't care about client messages.
+	}, testAcceptOpts()))
 	t.Cleanup(srv.Close)
 
 	// Capture count before dialing so we can wait for exactly +1 regardless

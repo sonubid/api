@@ -8,10 +8,12 @@ import "time"
 // in-memory Store to validate and process new bids without hitting the
 // database on every request.
 type State struct {
+	StartsAt      time.Time
+	EndsAt        time.Time
+	UpdatedAt     time.Time
 	AuctionID     string
 	BidderID      string
 	Status        Status
 	StartingPrice uint64
 	CurrentBid    uint64
-	UpdatedAt     time.Time
 }

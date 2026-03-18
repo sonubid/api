@@ -31,6 +31,8 @@ const (
 			a.id,
 			a.status,
 			a.starting_price,
+			a.starts_at,
+			a.ends_at,
 			COALESCE(lb.user_id, '')            AS bidder_id,
 			COALESCE(lb.amount, 0)              AS current_bid,
 			COALESCE(lb.placed_at, a.starts_at) AS updated_at
@@ -101,12 +103,14 @@ func (r *PostgresRepository) ListActiveStates(ctx context.Context) ([]auction.St
 			id            string
 			status        string
 			startingPrice int64
+			startsAt      time.Time
+			endsAt        time.Time
 			bidderID      string
 			currentBid    int64
 			updatedAt     time.Time
 		)
 
-		if err := rows.Scan(&id, &status, &startingPrice, &bidderID, &currentBid, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &status, &startingPrice, &startsAt, &endsAt, &bidderID, &currentBid, &updatedAt); err != nil {
 			return nil, fmt.Errorf("repository: scan active state: %w", err)
 		}
 
@@ -115,6 +119,8 @@ func (r *PostgresRepository) ListActiveStates(ctx context.Context) ([]auction.St
 			AuctionID:     id,
 			Status:        auction.Status(status),
 			StartingPrice: uint64(startingPrice),
+			StartsAt:      startsAt,
+			EndsAt:        endsAt,
 			BidderID:      bidderID,
 			CurrentBid:    uint64(currentBid),
 			UpdatedAt:     updatedAt,
