@@ -27,6 +27,7 @@ const (
 	testDBPassword = "sonubid"
 	sslModeDisable = "sslmode=disable"
 	userID         = "user-1"
+	UserID2        = "user-2"
 
 	containerStartupTimeout = 60 * time.Second
 
@@ -254,7 +255,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsHighestBid() {
 
 	bids := []auction.Bid{
 		{ID: uuid.NewString(), AuctionID: auctionID, UserID: userID, Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-2", Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: UserID2, Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-3", Amount: testBidAmountMid, PlacedAt: time.Now().UTC()},
 	}
 
@@ -268,7 +269,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsHighestBid() {
 
 	st := states[0]
 	s.Equal(testBidAmountHigh, st.CurrentBid)
-	s.Equal("user-2", st.BidderID)
+	s.Equal(UserID2, st.BidderID)
 }
 
 // TestListActiveStatesReturnsStatePerAuction verifies that when multiple
@@ -302,6 +303,49 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsStatePerAuction() {
 	s.Equal(testBidAmountZero, byID[auctionIDs[2]].CurrentBid)
 }
 
+// TestListFinishedStatesReturnsOnlyFinished verifies that finished auctions are
+// returned while active and pending auctions are excluded.
+func (s *postgresRepositorySuite) TestListFinishedStatesReturnsOnlyFinished() {
+	finishedID := uuid.NewString()
+	activeID := uuid.NewString()
+	pendingID := uuid.NewString()
+
+	s.insertAuction(finishedID, auction.StatusFinished)
+	s.insertAuction(activeID, auction.StatusActive)
+	s.insertAuction(pendingID, auction.StatusPending)
+
+	states, err := s.repo.ListFinishedStates(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(states, 1)
+	s.Equal(finishedID, states[0].AuctionID)
+	s.Equal(auction.StatusFinished, states[0].Status)
+}
+
+// TestListFinishedStatesReturnsHighestBid verifies that finished auction state
+// includes the highest recorded bid when bids exist.
+func (s *postgresRepositorySuite) TestListFinishedStatesReturnsHighestBid() {
+	auctionID := uuid.NewString()
+	s.insertAuction(auctionID, auction.StatusFinished)
+
+	bids := []auction.Bid{
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: userID, Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: UserID2, Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-3", Amount: testBidAmountMid, PlacedAt: time.Now().UTC()},
+	}
+
+	for _, b := range bids {
+		s.Require().NoError(s.repo.Save(context.Background(), b))
+	}
+
+	states, err := s.repo.ListFinishedStates(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(states, 1)
+
+	st := states[0]
+	s.Equal(testBidAmountHigh, st.CurrentBid)
+	s.Equal(UserID2, st.BidderID)
+}
+
 // TestFinishExpiredAuctionsMarksOnlyExpired verifies that only auctions with
 // ends_at <= now are transitioned to finished.
 func (s *postgresRepositorySuite) TestFinishExpiredAuctionsMarksOnlyExpired() {
@@ -314,10 +358,8 @@ func (s *postgresRepositorySuite) TestFinishExpiredAuctionsMarksOnlyExpired() {
 	s.insertAuctionWithWindow(activeFutureID, auction.StatusActive, now.Add(-time.Minute), now.Add(time.Hour))
 	s.insertAuctionWithWindow(alreadyFinishedID, auction.StatusFinished, now.Add(-2*time.Hour), now.Add(-time.Minute))
 
-	finishedIDs, err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	err := s.repo.FinishExpiredAuctions(context.Background(), now)
 	s.Require().NoError(err)
-	s.Require().Len(finishedIDs, 1)
-	s.Equal(expiredID, finishedIDs[0])
 
 	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
 	s.Equal(auction.StatusActive, s.fetchAuctionStatus(activeFutureID))
@@ -325,17 +367,17 @@ func (s *postgresRepositorySuite) TestFinishExpiredAuctionsMarksOnlyExpired() {
 }
 
 // TestFinishExpiredAuctionsIsIdempotent verifies a second call after cleanup
-// returns no updated IDs.
+// performs no additional state transition.
 func (s *postgresRepositorySuite) TestFinishExpiredAuctionsIsIdempotent() {
 	now := time.Now().UTC().Truncate(time.Second)
 	expiredID := uuid.NewString()
 	s.insertAuctionWithWindow(expiredID, auction.StatusActive, now.Add(-time.Hour), now.Add(-time.Minute))
 
-	firstIDs, err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	err := s.repo.FinishExpiredAuctions(context.Background(), now)
 	s.Require().NoError(err)
-	s.Require().Len(firstIDs, 1)
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
 
-	secondIDs, err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	err = s.repo.FinishExpiredAuctions(context.Background(), now)
 	s.Require().NoError(err)
-	s.Empty(secondIDs)
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
 }

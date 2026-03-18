@@ -157,11 +157,54 @@ func (s *mainSuite) TestSyncStoreFromDBLoadsOnlyAbsentAuctions() {
 	s.Require().NoError(err)
 	s.Equal(testExistingCurrentBid, existing.CurrentBid)
 	s.Equal("keeper", existing.BidderID)
+	s.Equal(auction.StatusActive, existing.Status)
 
 	newState, err := st.GetState(ctx, testAuctionIDNew)
 	s.Require().NoError(err)
 	s.Equal(testProviderStartingPrice, newState.StartingPrice)
 	s.Equal(auction.StatusPending, newState.Status)
+}
+
+func (s *mainSuite) TestSyncStoreFromDBRefreshesLifecycleForExistingAuction() {
+	ctx := context.Background()
+	st := store.New()
+	logger := discardLogger()
+	now := time.Now()
+
+	s.Require().NoError(st.LoadState(ctx, auction.State{
+		AuctionID:     testAuctionIDExisting,
+		Status:        auction.StatusPending,
+		StartingPrice: testExistingStartingPrice,
+		CurrentBid:    testExistingCurrentBid,
+		BidderID:      "keeper",
+		StartsAt:      now.Add(time.Hour),
+		EndsAt:        now.Add(2 * time.Hour),
+	}))
+
+	provider := &mockActiveStateProvider{
+		listActiveStatesFn: func(context.Context) ([]auction.State, error) {
+			return []auction.State{{
+				AuctionID:     testAuctionIDExisting,
+				Status:        auction.StatusActive,
+				StartingPrice: testProviderStartingPrice,
+				CurrentBid:    testProviderCurrentBid,
+				BidderID:      "provider",
+				StartsAt:      now.Add(-time.Hour),
+				EndsAt:        now.Add(time.Hour),
+			}}, nil
+		},
+	}
+
+	err := syncStoreFromDB(ctx, logger, st, provider)
+	s.Require().NoError(err)
+
+	existing, err := st.GetState(ctx, testAuctionIDExisting)
+	s.Require().NoError(err)
+	s.Equal(auction.StatusActive, existing.Status)
+	s.Equal(testExistingCurrentBid, existing.CurrentBid)
+	s.Equal("keeper", existing.BidderID)
+	s.True(existing.StartsAt.Equal(now.Add(-time.Hour)))
+	s.True(existing.EndsAt.Equal(now.Add(time.Hour)))
 }
 
 func (s *mainSuite) TestSyncStoreFromDBReturnsProviderError() {
@@ -197,7 +240,7 @@ func (s *mainSuite) TestSyncStoreFromDBReturnsStoreError() {
 	err := syncStoreFromDB(ctx, logger, st, provider)
 
 	s.Require().Error(err)
-	s.ErrorContains(err, "load state if absent")
+	s.ErrorContains(err, "sync state lifecycle")
 }
 
 func (s *mainSuite) TestStartStoreSyncLoadsNewAuctionAndStopsOnCancel() {
@@ -247,8 +290,14 @@ func (s *mainSuite) TestCleanupFinishedAuctionsMarksAndEvictsAuctions() {
 	logger := discardLogger()
 	evicter := &mockStateEvicter{}
 	finalizer := &mockAuctionFinalizer{
-		finishExpiredAuctionsFn: func(context.Context, time.Time) ([]string, error) {
-			return []string{testAuctionIDExisting, testAuctionIDNew}, nil
+		finishExpiredAuctionsFn: func(context.Context, time.Time) error {
+			return nil
+		},
+		listFinishedStatesFn: func(context.Context) ([]auction.State, error) {
+			return []auction.State{
+				{AuctionID: testAuctionIDExisting},
+				{AuctionID: testAuctionIDNew},
+			}, nil
 		},
 	}
 
@@ -263,8 +312,11 @@ func (s *mainSuite) TestCleanupFinishedAuctionsReturnsFinalizerError() {
 	logger := discardLogger()
 	evicter := &mockStateEvicter{}
 	finalizer := &mockAuctionFinalizer{
-		finishExpiredAuctionsFn: func(context.Context, time.Time) ([]string, error) {
-			return nil, errors.New("db failure")
+		finishExpiredAuctionsFn: func(context.Context, time.Time) error {
+			return errors.New("db failure")
+		},
+		listFinishedStatesFn: func(context.Context) ([]auction.State, error) {
+			return nil, nil
 		},
 	}
 
@@ -284,8 +336,11 @@ func (s *mainSuite) TestCleanupFinishedAuctionsReturnsEvicterError() {
 		},
 	}
 	finalizer := &mockAuctionFinalizer{
-		finishExpiredAuctionsFn: func(context.Context, time.Time) ([]string, error) {
-			return []string{testAuctionIDExisting}, nil
+		finishExpiredAuctionsFn: func(context.Context, time.Time) error {
+			return nil
+		},
+		listFinishedStatesFn: func(context.Context) ([]auction.State, error) {
+			return []auction.State{{AuctionID: testAuctionIDExisting}}, nil
 		},
 	}
 
@@ -295,14 +350,36 @@ func (s *mainSuite) TestCleanupFinishedAuctionsReturnsEvicterError() {
 	s.ErrorContains(err, "evict auction")
 }
 
+func (s *mainSuite) TestCleanupFinishedAuctionsReturnsListFinishedStatesError() {
+	ctx := context.Background()
+	logger := discardLogger()
+	evicter := &mockStateEvicter{}
+	finalizer := &mockAuctionFinalizer{
+		finishExpiredAuctionsFn: func(context.Context, time.Time) error {
+			return nil
+		},
+		listFinishedStatesFn: func(context.Context) ([]auction.State, error) {
+			return nil, errors.New("list failed")
+		},
+	}
+
+	err := cleanupFinishedAuctions(ctx, logger, evicter, finalizer, time.Now().UTC())
+
+	s.Require().Error(err)
+	s.ErrorContains(err, "list finished states")
+}
+
 func (s *mainSuite) TestStartAuctionCleanupRunsAndStopsOnCancel() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	evicter := &mockStateEvicter{}
 	finalizer := &mockAuctionFinalizer{
-		finishExpiredAuctionsFn: func(context.Context, time.Time) ([]string, error) {
-			return []string{testAuctionIDNew}, nil
+		finishExpiredAuctionsFn: func(context.Context, time.Time) error {
+			return nil
+		},
+		listFinishedStatesFn: func(context.Context) ([]auction.State, error) {
+			return []auction.State{{AuctionID: testAuctionIDNew}}, nil
 		},
 	}
 
@@ -348,11 +425,12 @@ func (m *mockActiveStateProvider) ListActiveStates(ctx context.Context) ([]aucti
 
 type mockAuctionFinalizer struct {
 	mu                      sync.Mutex
-	finishExpiredAuctionsFn func(ctx context.Context, now time.Time) ([]string, error)
+	finishExpiredAuctionsFn func(ctx context.Context, now time.Time) error
+	listFinishedStatesFn    func(ctx context.Context) ([]auction.State, error)
 	calls                   int
 }
 
-func (m *mockAuctionFinalizer) FinishExpiredAuctions(ctx context.Context, now time.Time) ([]string, error) {
+func (m *mockAuctionFinalizer) FinishExpiredAuctions(ctx context.Context, now time.Time) error {
 	m.mu.Lock()
 	m.calls++
 	m.mu.Unlock()
@@ -361,7 +439,15 @@ func (m *mockAuctionFinalizer) FinishExpiredAuctions(ctx context.Context, now ti
 		return m.finishExpiredAuctionsFn(ctx, now)
 	}
 
-	return nil, errors.New("mockAuctionFinalizer: finishExpiredAuctionsFn is nil")
+	return errors.New("mockAuctionFinalizer: finishExpiredAuctionsFn is nil")
+}
+
+func (m *mockAuctionFinalizer) ListFinishedStates(ctx context.Context) ([]auction.State, error) {
+	if m.listFinishedStatesFn != nil {
+		return m.listFinishedStatesFn(ctx)
+	}
+
+	return nil, errors.New("mockAuctionFinalizer: listFinishedStatesFn is nil")
 }
 
 type mockStateEvicter struct {

@@ -53,10 +53,6 @@ func (m *mockStore) LoadState(_ context.Context, _ auction.State) error {
 	return nil
 }
 
-func (m *mockStore) LoadStateIfAbsent(_ context.Context, _ auction.State) error {
-	return nil
-}
-
 func (m *mockStore) updateCallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

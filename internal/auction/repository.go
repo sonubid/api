@@ -23,8 +23,13 @@ type ActiveStateProvider interface {
 // finished in persistent storage.
 type Finalizer interface {
 	// FinishExpiredAuctions marks every non-finished auction with EndsAt <= now
-	// as finished and returns the IDs that changed state during the call.
-	FinishExpiredAuctions(ctx context.Context, now time.Time) ([]string, error)
+	// as finished.
+	FinishExpiredAuctions(ctx context.Context, now time.Time) error
+
+	// ListFinishedStates returns the state for every finished auction. It is used
+	// by background cleanup workers to evict stale in-memory entries that might
+	// remain after transient cache failures.
+	ListFinishedStates(ctx context.Context) ([]State, error)
 }
 
 // Repository combines Saver and ActiveStateProvider into a single interface.

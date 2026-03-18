@@ -120,30 +120,6 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return shutErr
 }
 
-// syncStoreFromDB loads non-finished auctions into the in-memory store only
-// when they are not already present.
-func syncStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.StateSyncLoader, provider auction.ActiveStateProvider) error {
-	states, err := provider.ListActiveStates(ctx)
-	if err != nil {
-		return fmt.Errorf("list active states: %w", err)
-	}
-
-	for _, state := range states {
-		if err := s.LoadStateIfAbsent(ctx, state); err != nil {
-			return fmt.Errorf("load state if absent for auction %s: %w", state.AuctionID, err)
-		}
-		logger.Debug(
-			"store sync tick",
-			slog.String("auction_id", state.AuctionID),
-			slog.String("status", string(state.Status)),
-			slog.Time("starts_at", state.StartsAt),
-			slog.Time("ends_at", state.EndsAt),
-		)
-	}
-
-	return nil
-}
-
 // loadStoreSyncIntervalFromEnv returns the background store sync interval.
 // When STORE_SYNC_INTERVAL is empty, a safe default interval is used.
 func loadStoreSyncIntervalFromEnv(logger *slog.Logger) (time.Duration, error) {
@@ -207,8 +183,8 @@ func seedStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.Store, 
 	return nil
 }
 
-// startStoreSync launches a background ticker that periodically syncs newly
-// created non-finished auctions from the repository into the in-memory store.
+// startStoreSync launches a background ticker that periodically synchronises
+// non-finished auctions from the repository into the in-memory store.
 func startStoreSync(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -235,6 +211,30 @@ func startStoreSync(
 			}
 		}
 	})
+}
+
+// syncStoreFromDB synchronises non-finished auctions into the in-memory store,
+// inserting missing entries and refreshing lifecycle fields for existing ones.
+func syncStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.StateSyncLoader, provider auction.ActiveStateProvider) error {
+	states, err := provider.ListActiveStates(ctx)
+	if err != nil {
+		return fmt.Errorf("list active states: %w", err)
+	}
+
+	for _, state := range states {
+		if err := s.SyncStateLifecycle(ctx, state); err != nil {
+			return fmt.Errorf("sync state lifecycle for auction %s: %w", state.AuctionID, err)
+		}
+		logger.Debug(
+			"store sync tick",
+			slog.String("auction_id", state.AuctionID),
+			slog.String("status", string(state.Status)),
+			slog.Time("starts_at", state.StartsAt),
+			slog.Time("ends_at", state.EndsAt),
+		)
+	}
+
+	return nil
 }
 
 // startAuctionCleanup launches a background ticker that marks expired auctions
@@ -276,20 +276,42 @@ func cleanupFinishedAuctions(
 	finalizer auction.Finalizer,
 	now time.Time,
 ) error {
-	finishedIDs, err := finalizer.FinishExpiredAuctions(ctx, now)
-	if err != nil {
+	if err := finalizer.FinishExpiredAuctions(ctx, now); err != nil {
 		return fmt.Errorf("finish expired auctions: %w", err)
 	}
 
-	for _, auctionID := range finishedIDs {
-		if err := evicter.DeleteState(ctx, auctionID); err != nil {
-			return fmt.Errorf("evict auction %s: %w", auctionID, err)
-		}
-		logger.Debug("evicted finished auction from store", slog.String("auction_id", auctionID))
+	finishedStates, err := finalizer.ListFinishedStates(ctx)
+	if err != nil {
+		return fmt.Errorf("list finished states: %w", err)
 	}
 
-	if len(finishedIDs) > 0 {
-		logger.Info("auction cleanup completed", slog.Int("finished_count", len(finishedIDs)))
+	var (
+		evictedCount int
+		evictErr     error
+	)
+
+	for _, state := range finishedStates {
+		if err := evicter.DeleteState(ctx, state.AuctionID); err != nil {
+			logger.Error(
+				"failed to evict finished auction from store",
+				slog.String("auction_id", state.AuctionID),
+				slog.Any("error", err),
+			)
+			if evictErr == nil {
+				evictErr = fmt.Errorf("evict auction %s: %w", state.AuctionID, err)
+			}
+			continue
+		}
+		evictedCount++
+		logger.Debug("evicted finished auction from store", slog.String("auction_id", state.AuctionID))
+	}
+
+	if evictedCount > 0 {
+		logger.Info("auction cleanup completed", slog.Int("finished_count", evictedCount))
+	}
+
+	if evictErr != nil {
+		return evictErr
 	}
 
 	return nil

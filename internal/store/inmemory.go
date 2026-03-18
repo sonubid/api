@@ -80,9 +80,9 @@ func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	return nil
 }
 
-// LoadStateIfAbsent initialises the in-memory state for a single auction only
-// when it does not already exist in the store.
-func (s *MemStore) LoadStateIfAbsent(_ context.Context, state auction.State) error {
+// SyncStateLifecycle refreshes lifecycle fields for an auction without
+// replacing in-memory bid progression.
+func (s *MemStore) SyncStateLifecycle(_ context.Context, state auction.State) error {
 	if state.AuctionID == "" {
 		return auction.ErrInvalidAuctionID
 	}
@@ -90,7 +90,13 @@ func (s *MemStore) LoadStateIfAbsent(_ context.Context, state auction.State) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.states[state.AuctionID]; exists {
+	if current, exists := s.states[state.AuctionID]; exists {
+		current.Status = state.Status
+		current.StartsAt = state.StartsAt
+		current.EndsAt = state.EndsAt
+		if current.StartingPrice == 0 {
+			current.StartingPrice = state.StartingPrice
+		}
 		return nil
 	}
 

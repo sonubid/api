@@ -74,30 +74,61 @@ func (s *storeSuite) TestLoadStateOverwrites() {
 	require.Equal(s.T(), newStartingPrice, state.StartingPrice)
 }
 
-func (s *storeSuite) TestLoadStateIfAbsentSuccess() {
-	err := s.store.LoadStateIfAbsent(s.ctx, s.newState(auctionOne, startingPrice))
+func (s *storeSuite) TestSyncStateLifecycleUpdatesTemporalFieldsOnly() {
+	original := auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusActive,
+		StartingPrice: startingPrice,
+		CurrentBid:    higherBid,
+		BidderID:      userOne,
+		StartsAt:      time.Now().Add(-2 * time.Hour),
+		EndsAt:        time.Now().Add(2 * time.Hour),
+	}
+	err := s.store.LoadState(s.ctx, original)
+	require.NoError(s.T(), err)
+
+	updatedStartsAt := time.Now().Add(-time.Hour)
+	updatedEndsAt := time.Now().Add(time.Hour)
+	err = s.store.SyncStateLifecycle(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusFinished,
+		StartingPrice: startingPrice + 500,
+		CurrentBid:    lowerBid,
+		BidderID:      userTwo,
+		StartsAt:      updatedStartsAt,
+		EndsAt:        updatedEndsAt,
+	})
 	require.NoError(s.T(), err)
 
 	state, err := s.store.GetState(s.ctx, auctionOne)
 	require.NoError(s.T(), err)
+	require.Equal(s.T(), auction.StatusFinished, state.Status)
+	require.True(s.T(), state.StartsAt.Equal(updatedStartsAt))
+	require.True(s.T(), state.EndsAt.Equal(updatedEndsAt))
+	require.Equal(s.T(), higherBid, state.CurrentBid)
+	require.Equal(s.T(), userOne, state.BidderID)
 	require.Equal(s.T(), startingPrice, state.StartingPrice)
 }
 
-func (s *storeSuite) TestLoadStateIfAbsentDoesNotOverwrite() {
-	err := s.store.LoadState(s.ctx, s.newState(auctionOne, startingPrice))
-	require.NoError(s.T(), err)
-
-	newStartingPrice := uint64(300)
-	err = s.store.LoadStateIfAbsent(s.ctx, s.newState(auctionOne, newStartingPrice))
+func (s *storeSuite) TestSyncStateLifecycleInsertsWhenMissing() {
+	now := time.Now()
+	err := s.store.SyncStateLifecycle(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusPending,
+		StartingPrice: startingPrice,
+		StartsAt:      now,
+		EndsAt:        now.Add(time.Hour),
+	})
 	require.NoError(s.T(), err)
 
 	state, err := s.store.GetState(s.ctx, auctionOne)
 	require.NoError(s.T(), err)
+	require.Equal(s.T(), auction.StatusPending, state.Status)
 	require.Equal(s.T(), startingPrice, state.StartingPrice)
 }
 
-func (s *storeSuite) TestLoadStateIfAbsentEmptyAuctionID() {
-	err := s.store.LoadStateIfAbsent(s.ctx, s.newState("", startingPrice))
+func (s *storeSuite) TestSyncStateLifecycleEmptyAuctionID() {
+	err := s.store.SyncStateLifecycle(s.ctx, auction.State{})
 	require.ErrorIs(s.T(), err, auction.ErrInvalidAuctionID)
 }
 
