@@ -22,8 +22,8 @@ var _ auction.Store = (*MemStore)(nil)
 var _ auction.StateSyncLoader = (*MemStore)(nil)
 var _ auction.StateEvicter = (*MemStore)(nil)
 
-// New creates a new in-memory store with an empty state map.
-func New() *MemStore {
+// NewInMemory creates a new in-memory store with an empty state map.
+func NewInMemory() *MemStore {
 	return &MemStore{
 		states: make(map[string]*auction.State),
 	}

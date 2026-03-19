@@ -1,5 +1,4 @@
-// Package queue provides an in-memory implementation of the auction.Queue
-// interface backed by a buffered Go channel.
+// Package queue provides an in-memory queue backed by a buffered Go channel.
 package queue
 
 import (
@@ -12,18 +11,15 @@ import (
 const defaultQueueSize = 100
 
 // MemQueue is a non-blocking, in-memory queue backed by a buffered channel.
-// It implements auction.Queue and is safe for concurrent use.
+// It is safe for concurrent use.
 // Close must be called exactly once after all Enqueue calls have finished.
 type MemQueue struct {
 	once   sync.Once
 	events chan auction.BidEvent
 }
 
-// Compile-time assertion that MemQueue implements auction.Queue.
-var _ auction.Queue = (*MemQueue)(nil)
-
-// New creates a MemQueue with a buffer capacity of defaultQueueSize.
-func New() *MemQueue {
+// NewInMemory creates a MemQueue with a buffer capacity of defaultQueueSize.
+func NewInMemory() *MemQueue {
 	return &MemQueue{
 		events: make(chan auction.BidEvent, defaultQueueSize),
 	}

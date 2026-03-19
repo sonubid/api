@@ -14,21 +14,40 @@ import (
 	"github.com/sonubid/api/internal/auction"
 )
 
+type Updater interface {
+	TryUpdateBid(ctx context.Context, bid auction.Bid) error
+}
+
+// Enqueuer defines the minimal queue contract required by Processor.
+type Enqueuer interface {
+	Enqueue(event auction.BidEvent) error
+}
+
+// Broadcaster defines the contract for broadcasting messages to all clients
+// connected to a given auction room. Implementations must be safe for
+// concurrent use.
+type Broadcaster interface {
+	// Broadcast sends a message to every client currently registered in the
+	// auction identified by auctionID. Clients that cannot receive the
+	// message immediately are skipped to avoid blocking the caller.
+	Broadcast(auctionID string, message []byte)
+}
+
 // Processor serialises store validation so that only one bid update runs at a
 // time, then asynchronously enqueues the event for audit persistence and
 // broadcasts the result to connected clients.
 // All methods are safe for concurrent use.
 type Processor struct {
 	mu          sync.Mutex
-	store       auction.Store
-	queue       auction.Queue
-	broadcaster auction.Broadcaster
 	logger      *slog.Logger
+	store       Updater
+	queue       Enqueuer
+	broadcaster Broadcaster
 }
 
 // New creates a Processor wired to the given store, queue, broadcaster, and
 // logger. If logger is nil, slog.Default() is used.
-func New(store auction.Store, queue auction.Queue, broadcaster auction.Broadcaster, logger *slog.Logger) *Processor {
+func New(logger *slog.Logger, store Updater, queue Enqueuer, broadcaster Broadcaster) *Processor {
 	if logger == nil {
 		logger = slog.Default()
 	}

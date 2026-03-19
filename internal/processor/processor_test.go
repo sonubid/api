@@ -32,11 +32,11 @@ func (s *processorSuite) SetupTest() {
 	s.store = &mockStore{}
 	s.queue = &mockQueue{}
 	s.broadcaster = &mockBroadcaster{}
-	s.proc = processor.New(s.store, s.queue, s.broadcaster, discardLogger())
+	s.proc = processor.New(discardLogger(), s.store, s.queue, s.broadcaster)
 }
 
 func (s *processorSuite) TestNewWithNilLoggerDoesNotPanic() {
-	proc := processor.New(s.store, s.queue, s.broadcaster, nil)
+	proc := processor.New(nil, s.store, s.queue, s.broadcaster)
 
 	bid := auction.Bid{
 		ID:        bidID,
@@ -93,7 +93,7 @@ func (s *processorSuite) TestProcessBidSetsEventReceivedAt() {
 
 func (s *processorSuite) TestProcessBidDoesNotEnqueueWhenClosedByTimeWindow() {
 	now := time.Now()
-	closedStore := store.New()
+	closedStore := store.NewInMemory()
 	err := closedStore.LoadState(s.ctx, auction.State{
 		AuctionID:     auctionOne,
 		Status:        auction.StatusPending,
@@ -103,7 +103,7 @@ func (s *processorSuite) TestProcessBidDoesNotEnqueueWhenClosedByTimeWindow() {
 	})
 	require.NoError(s.T(), err)
 
-	proc := processor.New(closedStore, s.queue, s.broadcaster, discardLogger())
+	proc := processor.New(discardLogger(), closedStore, s.queue, s.broadcaster)
 	bid := auction.Bid{
 		ID:        bidID,
 		AuctionID: auctionOne,

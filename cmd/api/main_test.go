@@ -113,7 +113,7 @@ func (s *mainSuite) TestLoadAuctionCleanupIntervalFromEnvRejectsNonPositive() {
 
 func (s *mainSuite) TestSyncStoreFromDBLoadsOnlyAbsentAuctions() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 
 	s.Require().NoError(st.LoadState(ctx, auction.State{
@@ -167,7 +167,7 @@ func (s *mainSuite) TestSyncStoreFromDBLoadsOnlyAbsentAuctions() {
 
 func (s *mainSuite) TestSyncStoreFromDBRefreshesLifecycleForExistingAuction() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 	now := time.Now()
 
@@ -209,7 +209,7 @@ func (s *mainSuite) TestSyncStoreFromDBRefreshesLifecycleForExistingAuction() {
 
 func (s *mainSuite) TestSyncStoreFromDBReturnsProviderError() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 
 	provider := &mockActiveStateProvider{
@@ -226,7 +226,7 @@ func (s *mainSuite) TestSyncStoreFromDBReturnsProviderError() {
 
 func (s *mainSuite) TestSyncStoreFromDBReturnsStoreError() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 
 	provider := &mockActiveStateProvider{
@@ -247,7 +247,7 @@ func (s *mainSuite) TestStartStoreSyncLoadsNewAuctionAndStopsOnCancel() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	st := store.New()
+	st := store.NewInMemory()
 	provider := &mockActiveStateProvider{
 		listActiveStatesFn: func(context.Context) ([]auction.State, error) {
 			return []auction.State{

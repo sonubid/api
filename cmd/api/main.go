@@ -37,9 +37,6 @@ const (
 	auctionCleanupOperation   = "AUCTION_CLEANUP"
 )
 
-// Compile-time assertion that *processor.Processor satisfies handler.BidProcessor.
-var _ handler.BidProcessor = (*processor.Processor)(nil)
-
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -86,9 +83,9 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	h := hub.NewHub()
-	st := store.New()
-	q := queue.New()
-	proc := processor.New(st, q, h, logger)
+	st := store.NewInMemory()
+	q := queue.NewInMemory()
+	proc := processor.New(logger, st, q, h)
 
 	syncCtx, stopSync := context.WithCancel(ctx)
 	defer stopSync()
@@ -320,7 +317,7 @@ func cleanupFinishedAuctions(
 // startWorkers launches workersCount background workers in separate goroutines.
 // Each worker drains the queue and persists bids via the provided Saver.
 // The WaitGroup wg is incremented for each worker and decremented when it exits.
-func startWorkers(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, saver auction.Saver, q auction.Queue) {
+func startWorkers(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, saver worker.Saver, q worker.Eventer) {
 	for i := 1; i <= workersCount; i++ {
 		wg.Add(1)
 		go func(workerID int) {
@@ -331,10 +328,14 @@ func startWorkers(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, 
 	}
 }
 
+type queueCloser interface {
+	Close()
+}
+
 // shutdown closes the queue so workers drain their remaining events,
 // then waits for all workers to exit before returning.
 // Order: close queue → workers drain → return.
-func shutdown(q auction.Queue, wg *sync.WaitGroup, logger *slog.Logger) error {
+func shutdown(q queueCloser, wg *sync.WaitGroup, logger *slog.Logger) error {
 	logger.Info("closing queue")
 	q.Close()
 
