@@ -50,14 +50,14 @@ The server listens on `:8080` by default.
 
 | Variable | Description | Default |
 |---|---|---|
-| `ALLOWED_ORIGIN` | Allowed WebSocket origin pattern. Accepts wildcards (e.g. `https://*.example.com`). Empty string disables origin checking. | `""` |
+| `ALLOWED_ORIGIN` | Allowed WebSocket origin pattern. Accepts wildcards (e.g. `https://*.example.com`). Empty string enables `InsecureSkipVerify` (development only). | `""` |
 
 ## WebSocket protocol
 
 ### Connect
 
 ```
-ws://localhost:8080/ws/auction/{auctionID}
+ws://localhost:8080/api/v1/ws/auction/{auctionID}
 ```
 
 Replace `{auctionID}` with the target auction's identifier (e.g. `auction-1`).
@@ -134,8 +134,7 @@ Each commit will automatically run the linter, vulnerability check, and short te
 ```
 cmd/api/          # entry point — wires all components
 internal/
-  auction/        # domain types and interfaces
-  dto/            # JSON wire format (BidRequest, BidResponse)
+  auction/        # domain types and auction feature routes
   hub/            # WebSocket connection manager
   store/          # in-memory auction state (sync.RWMutex)
   processor/      # bid validation, broadcast, and enqueue
@@ -144,6 +143,15 @@ internal/
   repository/     # bid storage
   server/         # lifecycle-managed HTTP server
 ```
+
+## Design conventions
+
+- `cmd/api` is the composition root: it builds dependencies, creates `http.ServeMux`, and starts the server.
+- Features own their transport routes. Each feature registers endpoints via `RegisterRoutes(*http.ServeMux)`.
+- Avoid generic technical-layer packages (`handler`, `service`, `dto`, `util`) used only for organisation, as in typical Java/C# layering.
+  Keep route logic and wire models in the feature package that owns the use case.
+- Interfaces are defined where they are consumed (small, local contracts), not in a central package.
+- Providers (`store`, `repository`, `queue`) expose concrete implementations; interface conformance is validated at wiring call sites by compilation.
 
 ## License
 
