@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 
+	"github.com/sonubid/api/internal/auction"
 	"github.com/sonubid/api/internal/db"
-	"github.com/sonubid/api/internal/handler"
 	"github.com/sonubid/api/internal/hub"
 	"github.com/sonubid/api/internal/processor"
 	"github.com/sonubid/api/internal/queue"
@@ -66,12 +67,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	startStoreSync(syncCtx, logger, wg, storeSyncInterval, st, repo)
 	startAuctionCleanup(syncCtx, logger, wg, auctionCleanupInterval, st, repo)
 
-	mux := handler.New(handler.Config{
-		Hub:           h,
-		Processor:     proc,
-		Logger:        logger,
-		AllowedOrigin: os.Getenv("ALLOWED_ORIGIN"),
-	})
+	mux := http.NewServeMux()
+	auction.NewHandler(proc, os.Getenv("ALLOWED_ORIGIN"), h, logger).RegisterRoutes(mux)
 
 	srvErr := server.Start(ctx, logger, mux, listenAddr)
 	stopSync()

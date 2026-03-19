@@ -1,48 +1,29 @@
-package handler_test
+package auction_test
 
 import (
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"testing"
-
-	"github.com/stretchr/testify/suite"
 
 	"github.com/sonubid/api/internal/auction"
-	"github.com/sonubid/api/internal/handler"
 	"github.com/sonubid/api/internal/hub"
 )
 
-type handlerSuite struct {
-	suite.Suite
-}
-
-// TestHandlerSuite is the testify suite runner for the handler package.
-func TestHandlerSuite(t *testing.T) {
-	suite.Run(t, new(handlerSuite))
-}
-
-// TestNewReturnsNonNilHandler verifies that New returns a usable http.Handler.
-func (s *handlerSuite) TestNewReturnsNonNilHandler() {
+// TestNewHandlerReturnsNonNilHandler verifies that NewHandler returns a usable route handler.
+func (s *handlerSuite) TestNewHandlerReturnsNonNilHandler() {
 	proc := &mockProcessor{}
 	h := hub.NewHub()
-	cfg := handler.Config{
-		Processor:     proc,
-		AllowedOrigin: "",
-		Hub:           h,
-		Logger:        discardLogger(),
-	}
 
-	got := handler.New(cfg)
+	got := auction.NewHandler(proc, "", h, discardLogger())
 
 	s.Require().NotNil(got)
 }
 
-// TestNewRegistersAuctionWSRoute verifies that New registers the auction
-// WebSocket route. A plain HTTP request is expected to fail the WebSocket
-// upgrade (not 404).
-func (s *handlerSuite) TestNewRegistersAuctionWSRoute() {
+// TestRegisterRoutesRegistersAuctionWSRoute verifies that RegisterRoutes mounts
+// the auction WebSocket route. A plain HTTP request is expected to fail the
+// WebSocket upgrade (not 404).
+func (s *handlerSuite) TestRegisterRoutesRegistersAuctionWSRoute() {
 	proc := &mockProcessor{}
 	srv, _ := s.newServerWithProc(proc)
 
@@ -125,21 +106,17 @@ func (s *handlerSuite) TestMsgHandlerContinuesAfterRejectedBid() {
 	)
 }
 
-// TestNewLogsWarningOnEmptyAllowedOrigin verifies that New with an empty
-// AllowedOrigin still returns a functioning handler (exercises the warning path).
-func (s *handlerSuite) TestNewLogsWarningOnEmptyAllowedOrigin() {
+// TestNewHandlerLogsWarningOnEmptyAllowedOrigin verifies that NewHandler with
+// an empty AllowedOrigin still returns a functioning handler.
+func (s *handlerSuite) TestNewHandlerLogsWarningOnEmptyAllowedOrigin() {
 	proc := &mockProcessor{}
 	h := hub.NewHub()
-	cfg := handler.Config{
-		Processor:     proc,
-		AllowedOrigin: "",
-		Hub:           h,
-		Logger:        discardLogger(),
-	}
+	got := auction.NewHandler(proc, "", h, discardLogger())
 
-	got := handler.New(cfg)
+	mux := http.NewServeMux()
+	got.RegisterRoutes(mux)
 
-	srv := httptest.NewServer(got)
+	srv := httptest.NewServer(mux)
 	s.T().Cleanup(srv.Close)
 
 	conn := dialWS(s.T(), srv, auctionOne)
@@ -154,7 +131,7 @@ func (s *handlerSuite) TestNewLogsWarningOnEmptyAllowedOrigin() {
 
 // newServerWithProc is a suite-local helper that builds a test server and
 // returns the server and hub.
-func (s *handlerSuite) newServerWithProc(proc handler.BidProcessor) (*httptest.Server, *hub.Hub) {
+func (s *handlerSuite) newServerWithProc(proc auction.BidProcessor) (*httptest.Server, *hub.Hub) {
 	s.T().Helper()
 
 	srv, h := newTestServer(s.T(), proc)
