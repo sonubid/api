@@ -12,6 +12,7 @@ import (
 
 	"github.com/sonubid/api/internal/auction"
 	"github.com/sonubid/api/internal/processor"
+	"github.com/sonubid/api/internal/store"
 )
 
 type processorSuite struct {
@@ -90,6 +91,34 @@ func (s *processorSuite) TestProcessBidSetsEventReceivedAt() {
 	require.False(s.T(), receivedAt.After(after), "ReceivedAt must not be after the call returned")
 }
 
+func (s *processorSuite) TestProcessBidDoesNotEnqueueWhenClosedByTimeWindow() {
+	now := time.Now()
+	closedStore := store.New()
+	err := closedStore.LoadState(s.ctx, auction.State{
+		AuctionID:     auctionOne,
+		Status:        auction.StatusPending,
+		StartingPrice: losingBid,
+		StartsAt:      now.Add(time.Hour),
+		EndsAt:        now.Add(2 * time.Hour),
+	})
+	require.NoError(s.T(), err)
+
+	proc := processor.New(closedStore, s.queue, s.broadcaster, discardLogger())
+	bid := auction.Bid{
+		ID:        bidID,
+		AuctionID: auctionOne,
+		UserID:    userOne,
+		Amount:    winningBid,
+		PlacedAt:  now,
+	}
+
+	err = proc.ProcessBid(s.ctx, bid, []byte(bidMsg))
+
+	require.ErrorIs(s.T(), err, auction.ErrAuctionClosed)
+	require.Equal(s.T(), 0, s.queue.enqueueCount())
+	require.Empty(s.T(), s.broadcaster.calls)
+}
+
 func (s *processorSuite) TestProcessBidAlwaysEnqueuesOnBidTooLow() {
 	s.store.tryUpdateBidFn = func(_ context.Context, _ auction.Bid) error {
 		return auction.ErrBidTooLow
@@ -130,7 +159,7 @@ func (s *processorSuite) TestProcessBidAlwaysEnqueuesOnAuctionNotFound() {
 	require.Empty(s.T(), s.broadcaster.calls)
 }
 
-func (s *processorSuite) TestProcessBidAlwaysEnqueuesOnAuctionClosed() {
+func (s *processorSuite) TestProcessBidDoesNotEnqueueOnAuctionClosed() {
 	s.store.tryUpdateBidFn = func(_ context.Context, _ auction.Bid) error {
 		return auction.ErrAuctionClosed
 	}
@@ -146,7 +175,7 @@ func (s *processorSuite) TestProcessBidAlwaysEnqueuesOnAuctionClosed() {
 	err := s.proc.ProcessBid(s.ctx, bid, []byte(bidMsg))
 
 	require.ErrorIs(s.T(), err, auction.ErrAuctionClosed)
-	require.Eventually(s.T(), func() bool { return s.queue.enqueueCount() == 1 }, waitTimeout, pollInterval)
+	require.Equal(s.T(), 0, s.queue.enqueueCount())
 	require.Empty(s.T(), s.broadcaster.calls)
 }
 

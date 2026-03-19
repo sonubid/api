@@ -85,7 +85,9 @@ func (m *mockQueue) Events() <-chan auction.BidEvent {
 	return ch
 }
 
-func (m *mockQueue) Close() {}
+func (m *mockQueue) Close() {
+	// Close is a no-op for mockQueue since Events returns a closed channel.
+}
 
 func (m *mockQueue) enqueueCount() int {
 	m.mu.Lock()

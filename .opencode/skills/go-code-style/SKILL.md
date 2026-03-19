@@ -98,6 +98,40 @@ func (s *Store) Update(ctx context.Context, id string, amount uint64) error {
 
 ---
 
+## Struct field ordering
+
+Order struct fields **from largest to smallest alignment** to minimise padding bytes inserted by the compiler. On a 64-bit platform:
+
+| Size | Types |
+|---|---|
+| 16 bytes | interfaces, `string` |
+| 8 bytes | pointers (`*T`), `int64`, `uint64`, `float64`, slices, maps, channels |
+| 4 bytes | `int32`, `uint32`, `float32` |
+| 2 bytes | `int16`, `uint16` |
+| 1 byte | `int8`, `uint8`, `bool` |
+
+Exception: `sync.Mutex` / `sync.RWMutex` always go **first**, regardless of size, to avoid accidental copying and to satisfy the concurrency rule.
+
+```go
+// Correct — 16-byte fields first, then 8-byte pointers
+type auctionHandler struct {
+    proc          BidProcessor  // interface, 16 bytes
+    allowedOrigin string        // 16 bytes
+    hub           *hub.Hub      // pointer, 8 bytes
+    logger        *slog.Logger  // pointer, 8 bytes
+}
+
+// Incorrect — mixed sizes cause unnecessary padding
+type auctionHandler struct {
+    hub           *hub.Hub      // 8 bytes — padding hole here
+    proc          BidProcessor  // 16 bytes
+    logger        *slog.Logger  // 8 bytes — padding hole here
+    allowedOrigin string        // 16 bytes
+}
+```
+
+---
+
 ## Magic numbers
 
 Define named constants for any numeric or string literal that is not immediately obvious. The `mnd` linter will flag violations.

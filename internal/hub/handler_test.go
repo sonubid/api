@@ -123,7 +123,9 @@ func dialHandler(
 	t.Helper()
 
 	if msgHandler == nil {
-		msgHandler = func(_ []byte) {}
+		msgHandler = func(_ []byte) {
+			// No-op handler.
+		}
 	}
 
 	srv := httptest.NewServer(hub.Handler(h, auctionID, msgHandler, testAcceptOpts()))
