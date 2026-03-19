@@ -6,7 +6,21 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/sonubid/api/internal/auction"
 )
+
+type stateLoader interface {
+	LoadState(ctx context.Context, state auction.State) error
+}
+
+type stateLifecycleSyncer interface {
+	SyncStateLifecycle(ctx context.Context, state auction.State) error
+}
+
+type activeStateProvider interface {
+	ListActiveStates(ctx context.Context) ([]auction.State, error)
+}
 
 // seedStoreFromDB loads every non-finished auction state from the repository
 // into the in-memory store so the server is ready to accept bids on startup.

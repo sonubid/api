@@ -59,7 +59,7 @@ Browser ──WebSocket──► Handler (hub)
 | Concern | Choice |
 |---|---|
 | Language | Go 1.26 |
-| HTTP | `net/http` (stdlib) |
+| HTTP | `net/http` (stdlib `ServeMux`) |
 | WebSocket | `github.com/coder/websocket` |
 | In-memory store | `sync.RWMutex` |
 | Database | PostgreSQL via `pgx` |

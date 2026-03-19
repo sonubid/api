@@ -28,10 +28,10 @@ func TestHandlerSuite(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Handler — upgrade and registration
+// ServeAuctionWS — upgrade and registration
 // ---------------------------------------------------------------------------
 
-func (s *handlerSuite) TestHandlerRegistersClientOnConnect() {
+func (s *handlerSuite) TestServeAuctionWSRegistersClientOnConnect() {
 	h := newHub()
 	srv, conn, _ := dialHandler(s.T(), h, handlerAuction, nil)
 	defer srv.Close()
@@ -41,7 +41,7 @@ func (s *handlerSuite) TestHandlerRegistersClientOnConnect() {
 	s.Equal(1, h.ClientCount(handlerAuction))
 }
 
-func (s *handlerSuite) TestHandlerUnregistersClientOnDisconnect() {
+func (s *handlerSuite) TestServeAuctionWSUnregistersClientOnDisconnect() {
 	h := newHub()
 	srv, conn, _ := dialHandler(s.T(), h, handlerAuction, nil)
 	defer srv.Close()
@@ -55,10 +55,10 @@ func (s *handlerSuite) TestHandlerUnregistersClientOnDisconnect() {
 }
 
 // ---------------------------------------------------------------------------
-// Handler — message routing
+// ServeAuctionWS — message routing
 // ---------------------------------------------------------------------------
 
-func (s *handlerSuite) TestHandlerInvokesHandlerWithIncomingMessage() {
+func (s *handlerSuite) TestServeAuctionWSInvokesHandlerWithIncomingMessage() {
 	recv := make(chan []byte, 1)
 	h := newHub()
 	srv, conn, _ := dialHandler(s.T(), h, handlerAuction, func(msg []byte) {
@@ -75,7 +75,7 @@ func (s *handlerSuite) TestHandlerInvokesHandlerWithIncomingMessage() {
 	s.Equal(incomingBid, string(waitMsg(s.T(), recv)))
 }
 
-func (s *handlerSuite) TestHandlerBroadcastReachesConnectedClient() {
+func (s *handlerSuite) TestServeAuctionWSBroadcastReachesConnectedClient() {
 	h := newHub()
 	recv := make(chan []byte, 1)
 
@@ -87,7 +87,7 @@ func (s *handlerSuite) TestHandlerBroadcastReachesConnectedClient() {
 	s.Equal(broadcastBid, string(waitMsg(s.T(), recv)))
 }
 
-func (s *handlerSuite) TestHandlerMultipleConnectionsSameAuction() {
+func (s *handlerSuite) TestServeAuctionWSMultipleConnectionsSameAuction() {
 	h := newHub()
 	recv1 := make(chan []byte, 1)
 	recv2 := make(chan []byte, 1)
@@ -110,7 +110,7 @@ func (s *handlerSuite) TestHandlerMultipleConnectionsSameAuction() {
 // helpers
 // ---------------------------------------------------------------------------
 
-// dialHandler starts an httptest.Server backed by hub.Handler with the given
+// dialHandler starts an httptest.Server backed by hub.ServeAuctionWS with the given
 // msgHandler, dials it and returns (server, clientConn, msgHandler channel).
 // Unlike newTestPair, it does not start a receive goroutine — callers that
 // need to read broadcasts should use newTestPair instead.
@@ -128,7 +128,7 @@ func dialHandler(
 		}
 	}
 
-	srv := httptest.NewServer(hub.Handler(h, auctionID, msgHandler, testAcceptOpts()))
+	srv := httptest.NewServer(hub.ServeAuctionWS(h, auctionID, msgHandler, testAcceptOpts()))
 	t.Cleanup(srv.Close)
 
 	wsURL := "ws" + srv.URL[len("http"):]

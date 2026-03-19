@@ -7,8 +7,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sonubid/api/internal/auction"
+
 	"github.com/sonubid/api/internal/worker"
 )
+
+type stateEvicter interface {
+	DeleteState(ctx context.Context, auctionID string) error
+}
+
+type auctionFinalizer interface {
+	FinishExpiredAuctions(ctx context.Context, now time.Time) error
+	ListFinishedStates(ctx context.Context) ([]auction.State, error)
+}
+
+type queueCloser interface {
+	Close()
+}
 
 // startAuctionCleanup launches a background ticker that marks expired auctions
 // as finished in the database, then evicts them from the in-memory store.

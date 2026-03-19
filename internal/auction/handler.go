@@ -85,7 +85,7 @@ func (h *Handler) wsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auctionID := r.PathValue("auctionID")
 		msgHandler := h.makeMsgHandler(r.Context(), auctionID)
-		hub.Handler(h.hub, auctionID, msgHandler, opts)(w, r)
+		hub.ServeAuctionWS(h.hub, auctionID, msgHandler, opts)(w, r)
 	}
 }
 
