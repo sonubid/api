@@ -1,6 +1,6 @@
 // Package processor validates incoming bids, updates the in-memory auction
-// state on success, and always enqueues bid events for asynchronous
-// persistence regardless of validation outcome.
+// state on success, and enqueues bid events for asynchronous persistence for
+// outcomes that should be audited.
 package processor
 
 import (
@@ -42,11 +42,11 @@ func New(store auction.Store, queue auction.Queue, broadcaster auction.Broadcast
 }
 
 // ProcessBid validates and processes an incoming bid.
-// The bid event is always enqueued asynchronously for audit persistence
-// regardless of the validation outcome, so queue errors never block the
-// real-time bidding path. If the bid becomes the new highest bid the raw
-// message is broadcast to all clients in the auction room. Returns an error
-// only if the bid does not pass store validation.
+// The bid event is enqueued asynchronously for audit persistence except when
+// the auction is closed, so queue errors never block the real-time bidding
+// path. If the bid becomes the new highest bid the raw message is broadcast to
+// all clients in the auction room. Returns an error only if the bid does not
+// pass store validation.
 func (p *Processor) ProcessBid(ctx context.Context, bid auction.Bid, msg []byte) error {
 	receivedAt := time.Now()
 

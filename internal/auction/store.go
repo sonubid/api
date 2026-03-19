@@ -23,3 +23,19 @@ type Store interface {
 	// exists in the store, its state is replaced.
 	LoadState(ctx context.Context, state State) error
 }
+
+// StateSyncLoader defines the contract used by the background store sync loop.
+// Implementations synchronise lifecycle fields for auction state.
+type StateSyncLoader interface {
+	// SyncStateLifecycle refreshes lifecycle fields for an auction state without
+	// regressing in-memory bid progress. Implementations may insert the state when
+	// it does not yet exist.
+	SyncStateLifecycle(ctx context.Context, state State) error
+}
+
+// StateEvicter defines the contract for removing auction state from memory.
+type StateEvicter interface {
+	// DeleteState removes a single auction state by ID. If the auction does not
+	// exist, implementations may treat the operation as a no-op.
+	DeleteState(ctx context.Context, auctionID string) error
+}

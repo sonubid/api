@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/sonubid/api/internal/auction"
 )
@@ -18,6 +19,8 @@ type MemStore struct {
 
 // Compile-time assertion that MemStore implements auction.Store.
 var _ auction.Store = (*MemStore)(nil)
+var _ auction.StateSyncLoader = (*MemStore)(nil)
+var _ auction.StateEvicter = (*MemStore)(nil)
 
 // New creates a new in-memory store with an empty state map.
 func New() *MemStore {
@@ -77,13 +80,54 @@ func (s *MemStore) LoadState(_ context.Context, state auction.State) error {
 	return nil
 }
 
-// validateBid checks that the auction is active and that bid.Amount is strictly
-// greater than the minimum acceptable amount. The minimum is the starting price
-// when no bids have been placed (CurrentBid == 0), or the current bid otherwise.
-// When both CurrentBid and StartingPrice are zero, only bids with Amount > 0
-// succeed; a bid of zero is always rejected.
+// SyncStateLifecycle refreshes lifecycle fields for an auction without
+// replacing in-memory bid progression.
+func (s *MemStore) SyncStateLifecycle(_ context.Context, state auction.State) error {
+	if state.AuctionID == "" {
+		return auction.ErrInvalidAuctionID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if current, exists := s.states[state.AuctionID]; exists {
+		current.Status = state.Status
+		current.StartsAt = state.StartsAt
+		current.EndsAt = state.EndsAt
+		if current.StartingPrice == 0 {
+			current.StartingPrice = state.StartingPrice
+		}
+		return nil
+	}
+
+	s.states[state.AuctionID] = &state
+
+	return nil
+}
+
+// DeleteState removes the in-memory state for a single auction.
+// If the auction is not present, it is treated as a no-op.
+func (s *MemStore) DeleteState(_ context.Context, auctionID string) error {
+	if auctionID == "" {
+		return auction.ErrInvalidAuctionID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.states, auctionID)
+
+	return nil
+}
+
+// validateBid checks that the auction is open at bid.PlacedAt and that
+// bid.Amount is strictly greater than the minimum acceptable amount. The
+// minimum is the starting price when no bids have been placed
+// (CurrentBid == 0), or the current bid otherwise. When both CurrentBid and
+// StartingPrice are zero, only bids with Amount > 0 succeed; a bid of zero is
+// always rejected.
 func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
-	if state.Status != auction.StatusActive {
+	if !isAuctionOpenAt(state, bid.PlacedAt) {
 		return auction.ErrAuctionClosed
 	}
 	var minBid uint64
@@ -96,4 +140,18 @@ func (s *MemStore) validateBid(state *auction.State, bid auction.Bid) error {
 		return auction.ErrBidTooLow
 	}
 	return nil
+}
+
+// isAuctionOpenAt reports whether an auction can accept bids at t.
+func isAuctionOpenAt(state *auction.State, t time.Time) bool {
+	if state.Status == auction.StatusFinished {
+		return false
+	}
+	if !state.StartsAt.IsZero() && t.Before(state.StartsAt) {
+		return false
+	}
+	if !state.EndsAt.IsZero() && !t.Before(state.EndsAt) {
+		return false
+	}
+	return true
 }

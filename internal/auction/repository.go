@@ -1,6 +1,9 @@
 package auction
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Saver defines the contract for persisting a single bid to storage.
 type Saver interface {
@@ -16,10 +19,24 @@ type ActiveStateProvider interface {
 	ListActiveStates(ctx context.Context) ([]State, error)
 }
 
+// Finalizer defines the contract for transitioning expired auctions to
+// finished in persistent storage.
+type Finalizer interface {
+	// FinishExpiredAuctions marks every non-finished auction with EndsAt <= now
+	// as finished.
+	FinishExpiredAuctions(ctx context.Context, now time.Time) error
+
+	// ListFinishedStates returns the state for every finished auction. It is used
+	// by background cleanup workers to evict stale in-memory entries that might
+	// remain after transient cache failures.
+	ListFinishedStates(ctx context.Context) ([]State, error)
+}
+
 // Repository combines Saver and ActiveStateProvider into a single interface.
 // Full storage implementations (e.g. PostgreSQL) satisfy Repository; lightweight
 // implementations may satisfy only one of the smaller interfaces.
 type Repository interface {
 	Saver
 	ActiveStateProvider
+	Finalizer
 }

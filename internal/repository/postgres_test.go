@@ -26,6 +26,8 @@ const (
 	testDBUser     = "sonubid"
 	testDBPassword = "sonubid"
 	sslModeDisable = "sslmode=disable"
+	userID         = "user-1"
+	UserID2        = "user-2"
 
 	containerStartupTimeout = 60 * time.Second
 
@@ -109,7 +111,7 @@ func (s *postgresRepositorySuite) TestSavePersistsBid() {
 	bid := auction.Bid{
 		ID:        uuid.NewString(),
 		AuctionID: auctionID,
-		UserID:    "user-1",
+		UserID:    userID,
 		Amount:    testBidAmountMid,
 		PlacedAt:  time.Now().UTC().Truncate(time.Microsecond),
 	}
@@ -132,7 +134,7 @@ func (s *postgresRepositorySuite) TestSaveReturnsErrorOnDuplicateID() {
 	bid := auction.Bid{
 		ID:        uuid.NewString(),
 		AuctionID: auctionID,
-		UserID:    "user-1",
+		UserID:    userID,
 		Amount:    testBidAmountMid,
 		PlacedAt:  time.Now().UTC(),
 	}
@@ -209,6 +211,31 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsPendingAuction() {
 	s.Equal(auction.StatusPending, states[0].Status)
 }
 
+// TestListActiveStatesReturnsAuctionSchedule verifies that starts_at and ends_at
+// are mapped into auction.State for non-finished auctions.
+func (s *postgresRepositorySuite) TestListActiveStatesReturnsAuctionSchedule() {
+	auctionID := uuid.NewString()
+	startsAt, err := time.Parse(time.RFC3339Nano, "2026-03-18T10:00:00Z")
+	s.Require().NoError(err)
+	endsAt, err := time.Parse(time.RFC3339Nano, "2026-03-18T11:00:00Z")
+	s.Require().NoError(err)
+
+	_, err = s.pool.Exec(context.Background(),
+		`INSERT INTO auction (id, title, status, starting_price, starts_at, ends_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		auctionID, "Scheduled Auction", string(auction.StatusPending), int64(testStartingPrice), startsAt, endsAt,
+	)
+	s.Require().NoError(err)
+
+	states, err := s.repo.ListActiveStates(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(states, 1)
+
+	st := states[0]
+	s.True(st.StartsAt.Equal(startsAt))
+	s.True(st.EndsAt.Equal(endsAt))
+}
+
 // TestListActiveStatesExcludesFinishedAuction verifies that finished auctions
 // are not included in the results.
 func (s *postgresRepositorySuite) TestListActiveStatesExcludesFinishedAuction() {
@@ -227,8 +254,8 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsHighestBid() {
 	s.insertAuction(auctionID, auction.StatusActive)
 
 	bids := []auction.Bid{
-		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-1", Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-2", Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: userID, Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: UserID2, Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-3", Amount: testBidAmountMid, PlacedAt: time.Now().UTC()},
 	}
 
@@ -242,7 +269,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsHighestBid() {
 
 	st := states[0]
 	s.Equal(testBidAmountHigh, st.CurrentBid)
-	s.Equal("user-2", st.BidderID)
+	s.Equal(UserID2, st.BidderID)
 }
 
 // TestListActiveStatesReturnsStatePerAuction verifies that when multiple
@@ -257,7 +284,7 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsStatePerAuction() {
 	s.Require().NoError(s.repo.Save(context.Background(), auction.Bid{
 		ID:        uuid.NewString(),
 		AuctionID: auctionIDs[0],
-		UserID:    "user-1",
+		UserID:    userID,
 		Amount:    testBidAmountSolo,
 		PlacedAt:  time.Now().UTC(),
 	}))
@@ -274,4 +301,83 @@ func (s *postgresRepositorySuite) TestListActiveStatesReturnsStatePerAuction() {
 	s.Equal(testBidAmountSolo, byID[auctionIDs[0]].CurrentBid)
 	s.Equal(testBidAmountZero, byID[auctionIDs[1]].CurrentBid)
 	s.Equal(testBidAmountZero, byID[auctionIDs[2]].CurrentBid)
+}
+
+// TestListFinishedStatesReturnsOnlyFinished verifies that finished auctions are
+// returned while active and pending auctions are excluded.
+func (s *postgresRepositorySuite) TestListFinishedStatesReturnsOnlyFinished() {
+	finishedID := uuid.NewString()
+	activeID := uuid.NewString()
+	pendingID := uuid.NewString()
+
+	s.insertAuction(finishedID, auction.StatusFinished)
+	s.insertAuction(activeID, auction.StatusActive)
+	s.insertAuction(pendingID, auction.StatusPending)
+
+	states, err := s.repo.ListFinishedStates(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(states, 1)
+	s.Equal(finishedID, states[0].AuctionID)
+	s.Equal(auction.StatusFinished, states[0].Status)
+}
+
+// TestListFinishedStatesReturnsHighestBid verifies that finished auction state
+// includes the highest recorded bid when bids exist.
+func (s *postgresRepositorySuite) TestListFinishedStatesReturnsHighestBid() {
+	auctionID := uuid.NewString()
+	s.insertAuction(auctionID, auction.StatusFinished)
+
+	bids := []auction.Bid{
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: userID, Amount: testBidAmountLow, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: UserID2, Amount: testBidAmountHigh, PlacedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), AuctionID: auctionID, UserID: "user-3", Amount: testBidAmountMid, PlacedAt: time.Now().UTC()},
+	}
+
+	for _, b := range bids {
+		s.Require().NoError(s.repo.Save(context.Background(), b))
+	}
+
+	states, err := s.repo.ListFinishedStates(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(states, 1)
+
+	st := states[0]
+	s.Equal(testBidAmountHigh, st.CurrentBid)
+	s.Equal(UserID2, st.BidderID)
+}
+
+// TestFinishExpiredAuctionsMarksOnlyExpired verifies that only auctions with
+// ends_at <= now are transitioned to finished.
+func (s *postgresRepositorySuite) TestFinishExpiredAuctionsMarksOnlyExpired() {
+	now := time.Now().UTC().Truncate(time.Second)
+	expiredID := uuid.NewString()
+	activeFutureID := uuid.NewString()
+	alreadyFinishedID := uuid.NewString()
+
+	s.insertAuctionWithWindow(expiredID, auction.StatusActive, now.Add(-2*time.Hour), now.Add(-time.Minute))
+	s.insertAuctionWithWindow(activeFutureID, auction.StatusActive, now.Add(-time.Minute), now.Add(time.Hour))
+	s.insertAuctionWithWindow(alreadyFinishedID, auction.StatusFinished, now.Add(-2*time.Hour), now.Add(-time.Minute))
+
+	err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	s.Require().NoError(err)
+
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
+	s.Equal(auction.StatusActive, s.fetchAuctionStatus(activeFutureID))
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(alreadyFinishedID))
+}
+
+// TestFinishExpiredAuctionsIsIdempotent verifies a second call after cleanup
+// performs no additional state transition.
+func (s *postgresRepositorySuite) TestFinishExpiredAuctionsIsIdempotent() {
+	now := time.Now().UTC().Truncate(time.Second)
+	expiredID := uuid.NewString()
+	s.insertAuctionWithWindow(expiredID, auction.StatusActive, now.Add(-time.Hour), now.Add(-time.Minute))
+
+	err := s.repo.FinishExpiredAuctions(context.Background(), now)
+	s.Require().NoError(err)
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
+
+	err = s.repo.FinishExpiredAuctions(context.Background(), now)
+	s.Require().NoError(err)
+	s.Equal(auction.StatusFinished, s.fetchAuctionStatus(expiredID))
 }
