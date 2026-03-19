@@ -37,6 +37,31 @@ const (
 	auctionCleanupOperation   = "AUCTION_CLEANUP"
 )
 
+type stateLoader interface {
+	LoadState(ctx context.Context, state auction.State) error
+}
+
+type stateLifecycleSyncer interface {
+	SyncStateLifecycle(ctx context.Context, state auction.State) error
+}
+
+type stateEvicter interface {
+	DeleteState(ctx context.Context, auctionID string) error
+}
+
+type activeStateProvider interface {
+	ListActiveStates(ctx context.Context) ([]auction.State, error)
+}
+
+type auctionFinalizer interface {
+	FinishExpiredAuctions(ctx context.Context, now time.Time) error
+	ListFinishedStates(ctx context.Context) ([]auction.State, error)
+}
+
+type queueCloser interface {
+	Close()
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -157,7 +182,7 @@ func loadPositiveDurationFromEnv(raw string, defaultValue time.Duration, logger 
 // seedStoreFromDB loads every non-finished auction state from the repository
 // into the in-memory store so the server is ready to accept bids on startup.
 // If no active auctions exist the store starts empty without error.
-func seedStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.Store, provider auction.ActiveStateProvider) error {
+func seedStoreFromDB(ctx context.Context, logger *slog.Logger, s stateLoader, provider activeStateProvider) error {
 	states, err := provider.ListActiveStates(ctx)
 	if err != nil {
 		return fmt.Errorf("list active states: %w", err)
@@ -187,8 +212,8 @@ func startStoreSync(
 	logger *slog.Logger,
 	wg *sync.WaitGroup,
 	interval time.Duration,
-	s auction.StateSyncLoader,
-	provider auction.ActiveStateProvider,
+	s stateLifecycleSyncer,
+	provider activeStateProvider,
 ) {
 	wg.Go(func() {
 		ticker := time.NewTicker(interval)
@@ -212,7 +237,7 @@ func startStoreSync(
 
 // syncStoreFromDB synchronises non-finished auctions into the in-memory store,
 // inserting missing entries and refreshing lifecycle fields for existing ones.
-func syncStoreFromDB(ctx context.Context, logger *slog.Logger, s auction.StateSyncLoader, provider auction.ActiveStateProvider) error {
+func syncStoreFromDB(ctx context.Context, logger *slog.Logger, s stateLifecycleSyncer, provider activeStateProvider) error {
 	states, err := provider.ListActiveStates(ctx)
 	if err != nil {
 		return fmt.Errorf("list active states: %w", err)
@@ -241,8 +266,8 @@ func startAuctionCleanup(
 	logger *slog.Logger,
 	wg *sync.WaitGroup,
 	interval time.Duration,
-	evicter auction.StateEvicter,
-	finalizer auction.Finalizer,
+	evicter stateEvicter,
+	finalizer auctionFinalizer,
 ) {
 	wg.Go(func() {
 		ticker := time.NewTicker(interval)
@@ -269,8 +294,8 @@ func startAuctionCleanup(
 func cleanupFinishedAuctions(
 	ctx context.Context,
 	logger *slog.Logger,
-	evicter auction.StateEvicter,
-	finalizer auction.Finalizer,
+	evicter stateEvicter,
+	finalizer auctionFinalizer,
 	now time.Time,
 ) error {
 	if err := finalizer.FinishExpiredAuctions(ctx, now); err != nil {
@@ -326,10 +351,6 @@ func startWorkers(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, 
 			w.Start(ctx, workerID)
 		}(i)
 	}
-}
-
-type queueCloser interface {
-	Close()
 }
 
 // shutdown closes the queue so workers drain their remaining events,

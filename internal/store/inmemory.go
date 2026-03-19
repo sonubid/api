@@ -11,16 +11,11 @@ import (
 )
 
 // MemStore provides in-memory storage for auction states using a concurrent-safe
-// map protected by a read-write mutex. It implements the auction.Store interface.
+// map protected by a read-write mutex.
 type MemStore struct {
 	mu     sync.RWMutex
 	states map[string]*auction.State
 }
-
-// Compile-time assertion that MemStore implements auction.Store.
-var _ auction.Store = (*MemStore)(nil)
-var _ auction.StateSyncLoader = (*MemStore)(nil)
-var _ auction.StateEvicter = (*MemStore)(nil)
 
 // NewInMemory creates a new in-memory store with an empty state map.
 func NewInMemory() *MemStore {

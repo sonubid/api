@@ -1,4 +1,4 @@
-// Package repository provides implementations of the auction.Repository interface.
+// Package repository provides persistence implementations for auction data.
 // It includes an in-memory implementation for testing and a PostgreSQL-backed
 // implementation for production use.
 package repository
@@ -77,13 +77,11 @@ const (
 		  AND ends_at <= $1`
 )
 
-// PostgresRepository is a PostgreSQL-backed implementation of auction.Repository.
+// PostgresRepository is a PostgreSQL-backed persistence implementation.
 // It uses a pgxpool.Pool for all database operations.
 type PostgresRepository struct {
 	pool *pgxpool.Pool
 }
-
-var _ auction.Repository = (*PostgresRepository)(nil)
 
 // NewPostgresRepository returns a new PostgresRepository backed by the given pool.
 // The caller owns the pool lifecycle; PostgresRepository never closes it.

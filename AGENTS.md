@@ -112,14 +112,14 @@ lefthook run pre-commit
 - Multiple `.go` files per package are expected and encouraged.
 - One domain type per file (`auction.go`, `bid.go`, `state.go`, etc.).
 - All packages live under `internal/`.
-- Interfaces live in the `auction` package (consumer packages import them).
+- Define interfaces in the consumer package that needs them.
 
 Current layout:
 
 ```
 cmd/api/       # main.go — wires everything together
 internal/
-  auction/     # domain models + interfaces
+  auction/     # Domain models
   dto/         # Data Transfer Objects for wire format
   handler/     # HTTP handler tree — routes all domains onto a ServeMux
   hub/         # WebSocket hub + client + HTTP handler
@@ -127,7 +127,7 @@ internal/
   processor/   # bid validation + broadcast + enqueue
   queue/       # Queue implementation — chan BidEvent
   worker/      # background persistence goroutine
-  repository/  # MemRepository (auction.Saver) — MVP complete; pgx implementation pending
+  repository/  # MemRepository + PostgreSQL persistence implementations
   server/      # lifecycle-managed HTTP server
 ```
 
