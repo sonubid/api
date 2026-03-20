@@ -5,39 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-	"testing"
 	"time"
-
-	"github.com/stretchr/testify/suite"
 
 	"github.com/sonubid/api/internal/auction"
 	"github.com/sonubid/api/internal/store"
 )
-
-const (
-	testSyncInterval          = 10 * time.Millisecond
-	testCleanupInterval       = 15 * time.Millisecond
-	testSyncWaitTimeout       = time.Second
-	testAuctionIDExisting     = "auction-existing"
-	testAuctionIDNew          = "auction-new"
-	testAuctionIDInvalid      = ""
-	testExistingStartingPrice = uint64(100)
-	testExistingCurrentBid    = uint64(500)
-	testProviderStartingPrice = uint64(50)
-	testProviderCurrentBid    = uint64(60)
-	testEnvSyncInterval       = "20ms"
-	testEnvCleanupInterval    = "25ms"
-	testEnvInvalidDuration    = "abc"
-	testEnvZeroDuration       = "0s"
-)
-
-type mainSuite struct {
-	suite.Suite
-}
-
-func TestMainSuite(t *testing.T) {
-	suite.Run(t, new(mainSuite))
-}
 
 func (s *mainSuite) TestLoadStoreSyncIntervalFromEnvDefault() {
 	s.T().Setenv(storeSyncIntervalEnvVar, "")
@@ -113,7 +85,7 @@ func (s *mainSuite) TestLoadAuctionCleanupIntervalFromEnvRejectsNonPositive() {
 
 func (s *mainSuite) TestSyncStoreFromDBLoadsOnlyAbsentAuctions() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 
 	s.Require().NoError(st.LoadState(ctx, auction.State{
@@ -167,7 +139,7 @@ func (s *mainSuite) TestSyncStoreFromDBLoadsOnlyAbsentAuctions() {
 
 func (s *mainSuite) TestSyncStoreFromDBRefreshesLifecycleForExistingAuction() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 	now := time.Now()
 
@@ -209,7 +181,7 @@ func (s *mainSuite) TestSyncStoreFromDBRefreshesLifecycleForExistingAuction() {
 
 func (s *mainSuite) TestSyncStoreFromDBReturnsProviderError() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 
 	provider := &mockActiveStateProvider{
@@ -226,7 +198,7 @@ func (s *mainSuite) TestSyncStoreFromDBReturnsProviderError() {
 
 func (s *mainSuite) TestSyncStoreFromDBReturnsStoreError() {
 	ctx := context.Background()
-	st := store.New()
+	st := store.NewInMemory()
 	logger := discardLogger()
 
 	provider := &mockActiveStateProvider{
@@ -247,7 +219,7 @@ func (s *mainSuite) TestStartStoreSyncLoadsNewAuctionAndStopsOnCancel() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	st := store.New()
+	st := store.NewInMemory()
 	provider := &mockActiveStateProvider{
 		listActiveStatesFn: func(context.Context) ([]auction.State, error) {
 			return []auction.State{
@@ -476,8 +448,4 @@ func (m *mockStateEvicter) DeletedIDs() []string {
 	copy(out, m.deletedIDs)
 
 	return out
-}
-
-func discardLogger() *slog.Logger {
-	return slog.New(slog.DiscardHandler)
 }

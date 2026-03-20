@@ -59,7 +59,7 @@ Browser ──WebSocket──► Handler (hub)
 | Concern | Choice |
 |---|---|
 | Language | Go 1.26 |
-| HTTP | `net/http` (stdlib) |
+| HTTP | `net/http` (stdlib `ServeMux`) |
 | WebSocket | `github.com/coder/websocket` |
 | In-memory store | `sync.RWMutex` |
 | Database | PostgreSQL via `pgx` |
@@ -112,22 +112,36 @@ lefthook run pre-commit
 - Multiple `.go` files per package are expected and encouraged.
 - One domain type per file (`auction.go`, `bid.go`, `state.go`, etc.).
 - All packages live under `internal/`.
-- Interfaces live in the `auction` package (consumer packages import them).
+- Define interfaces in the consumer package that needs them.
+
+### Idiomatic package boundaries
+
+- `cmd/api` is the composition root: it wires dependencies, creates `ServeMux`,
+  and starts the server.
+- Feature packages own their transport routes. A feature exposes
+  `RegisterRoutes(*http.ServeMux)` and mounts its own endpoints internally.
+- Avoid generic technical-layer packages such as `handler`, `service`, `dto`,
+  or `util` used only for organisation (common in Java/C# style architectures).
+  Keep HTTP/WebSocket route logic and wire models inside the feature package
+  that owns the use case.
+- Keep contracts small and local. If a package only needs one method, define a
+  one-method interface in that consumer package.
+- Providers (`store`, `repository`, `queue`, etc.) should not import consumer
+  packages only to assert interface implementation. Compilation at wiring points
+  already validates contracts.
 
 Current layout:
 
 ```
 cmd/api/       # main.go — wires everything together
 internal/
-  auction/     # domain models + interfaces
-  dto/         # Data Transfer Objects for wire format
-  handler/     # HTTP handler tree — routes all domains onto a ServeMux
+  auction/     # Domain models + auction feature routes
   hub/         # WebSocket hub + client + HTTP handler
   store/       # Store implementation — sync.RWMutex
   processor/   # bid validation + broadcast + enqueue
   queue/       # Queue implementation — chan BidEvent
   worker/      # background persistence goroutine
-  repository/  # MemRepository (auction.Saver) — MVP complete; pgx implementation pending
+  repository/  # MemRepository + PostgreSQL persistence implementations
   server/      # lifecycle-managed HTTP server
 ```
 
@@ -157,3 +171,7 @@ The `godoclint` linter enforces Go doc comment format on all exported symbols.
 7. Load skill `code-review` and launch a **code review sub-agent** to review all
    changed files. Address every finding before proceeding.
 8. Only commit after linter + tests + code review are all clean.
+
+---
+
+If needed, use the MCP Context7 when I need library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.

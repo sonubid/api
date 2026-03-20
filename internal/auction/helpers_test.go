@@ -1,9 +1,10 @@
-// Package handler_test provides black-box tests for the handler package.
-package handler_test
+// Package auction_test provides black-box tests for the auction package.
+package auction_test
 
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -13,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sonubid/api/internal/auction"
-	"github.com/sonubid/api/internal/handler"
 	"github.com/sonubid/api/internal/hub"
 )
 
@@ -71,20 +71,17 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// newTestServer builds an httptest.Server from a handler.Config and registers
+// newTestServer builds an httptest.Server from an auction.Handler and registers
 // t.Cleanup(srv.Close).
-func newTestServer(t *testing.T, proc handler.BidProcessor) (*httptest.Server, *hub.Hub) {
+func newTestServer(t *testing.T, proc auction.BidProcessor) (*httptest.Server, *hub.Hub) {
 	t.Helper()
 
 	h := hub.NewHub()
-	cfg := handler.Config{
-		Processor:     proc,
-		AllowedOrigin: "",
-		Hub:           h,
-		Logger:        discardLogger(),
-	}
+	auctionHandler := auction.NewHandler(proc, "", h, discardLogger())
+	mux := http.NewServeMux()
+	auctionHandler.RegisterRoutes(mux)
 
-	srv := httptest.NewServer(handler.New(cfg))
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	return srv, h

@@ -37,7 +37,7 @@ func makeBidEvent(auctionID, userID string, amount uint64) auction.BidEvent {
 	}
 }
 
-// mockRepository is a test double for auction.Saver.
+// mockRepository is a test double for worker.Saver.
 type mockRepository struct {
 	mu        sync.Mutex
 	saveFn    func(ctx context.Context, bid auction.Bid) error
@@ -74,7 +74,7 @@ func (m *mockRepository) firstSaveCall() auction.Bid {
 	return m.saveCalls[0]
 }
 
-// mockQueue is a test double for auction.Queue backed by a real buffered channel.
+// mockQueue is a test double for worker.Eventer backed by a real buffered channel.
 type mockQueue struct {
 	once   sync.Once
 	events chan auction.BidEvent

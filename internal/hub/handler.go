@@ -7,7 +7,7 @@ import (
 	"github.com/coder/websocket"
 )
 
-// Handler returns an http.HandlerFunc that upgrades incoming HTTP requests to
+// ServeAuctionWS returns an http.HandlerFunc that upgrades incoming HTTP requests to
 // WebSocket connections and integrates them into the Hub for the auction
 // identified by auctionID.
 //
@@ -24,7 +24,7 @@ import (
 // opts is passed directly to websocket.Accept. Production callers should set
 // opts.OriginPatterns to restrict cross-origin connections; passing nil uses
 // the library defaults.
-func Handler(h *Hub, auctionID string, msgHandler func([]byte), opts *websocket.AcceptOptions) http.HandlerFunc {
+func ServeAuctionWS(h *Hub, auctionID string, msgHandler func([]byte), opts *websocket.AcceptOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, opts)
 		if err != nil {

@@ -9,17 +9,27 @@ import (
 	"github.com/sonubid/api/internal/auction"
 )
 
+// Saver defines the minimal persistence contract required by Worker.
+type Saver interface {
+	Save(ctx context.Context, bid auction.Bid) error
+}
+
+// Eventer defines the minimal queue contract required by Worker.
+type Eventer interface {
+	Events() <-chan auction.BidEvent
+}
+
 // Worker drains bid events from a Queue and persists each one via a Saver.
 // It is safe to run multiple Workers concurrently against the same Queue.
 type Worker struct {
-	saver  auction.Saver
-	queue  auction.Queue
+	saver  Saver
+	queue  Eventer
 	logger *slog.Logger
 }
 
 // New constructs a Worker wired to the given Saver, Queue, and logger.
 // If logger is nil, slog.Default() is used.
-func New(saver auction.Saver, queue auction.Queue, logger *slog.Logger) *Worker {
+func New(saver Saver, queue Eventer, logger *slog.Logger) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}

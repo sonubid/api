@@ -31,7 +31,7 @@ func TestMemQueueSuite(t *testing.T) {
 }
 
 func (s *memQueueSuite) SetupTest() {
-	s.q = queue.New()
+	s.q = queue.NewInMemory()
 }
 
 // TestEnqueueSucceeds verifies that a single event can be enqueued without error.

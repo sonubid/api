@@ -41,7 +41,7 @@ func TestStoreSuite(t *testing.T) {
 
 func (s *storeSuite) SetupTest() {
 	s.ctx = context.Background()
-	s.store = store.New()
+	s.store = store.NewInMemory()
 }
 
 func (s *storeSuite) TestLoadStateSuccess() {

@@ -30,7 +30,7 @@ func newHub() *hub.Hub {
 	return hub.NewHub()
 }
 
-// newTestPair starts an httptest.Server using hub.Handler for the given
+// newTestPair starts an httptest.Server using hub.ServeAuctionWS for the given
 // auctionID and dials it, returning the server and the client-side connection.
 // If received is non-nil, every message delivered to the client via Broadcast
 // is forwarded into that channel. The read goroutine is bound to the test
@@ -43,7 +43,7 @@ func newTestPair(
 ) (*httptest.Server, *websocket.Conn) {
 	t.Helper()
 
-	srv := httptest.NewServer(hub.Handler(h, auctionID, func(_ []byte) {
+	srv := httptest.NewServer(hub.ServeAuctionWS(h, auctionID, func(_ []byte) {
 		// No-op handler since tests that use newTestPair don't care about client messages.
 	}, testAcceptOpts()))
 	t.Cleanup(srv.Close)

@@ -1,8 +1,7 @@
-// Package auction provides the domain models and interfaces for the auction system.
+// Package auction provides the core domain models for the auction system.
 //
-// This package defines the core entities (Auction, Bid, State, BidEvent) and the
-// contracts (Store, Repository, Queue) that enable the application to operate
-// with different storage and persistence implementations.
+// This package defines the core entities (Auction, Bid, State, BidEvent)
+// shared across internal packages.
 package auction
 
 import "time"
